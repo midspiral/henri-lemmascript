@@ -1,24 +1,32 @@
+//@ backend dafny
+
 // The access decision — the pure core of henri's permission system.
 //
-// VERIFICATION TARGET (Phase 1). This module is written in LemmaScript's
-// computational fragment (no I/O, no mutable closures) so it can be annotated
-// and proved later. The interactive, stateful wrapper that prompts the user and
-// records grants lives in permission-gate.ts (unverified shell).
+// VERIFICATION TARGET (Phase 1). Written in LemmaScript's computational
+// fragment so it is extracted to Dafny and proved. The interactive, stateful
+// wrapper that prompts the user and records grants lives in permission-gate.ts
+// (unverified shell).
 //
-// Properties to prove (see DESIGN.md §3.1):
-//   P1 soundness   — decide() == "Allow" only with a recorded justification
+// Properties (see DESIGN.md §3.1 and permissions.dfy for the proofs):
+//   P1 soundness   — decide() == "Allow" iff isAllowed() (no other path to Allow)
 //   P2 containment — a path that escapes cwd is never auto-granted
 //   P3 monotonicity— adding a grant never turns Allow into Deny/Prompt
 //   P4 reject-safe — rejectPrompts only rewrites Prompt -> Deny
 
 export type Outcome = "Allow" | "Deny" | "Prompt";
 
+/** A per-path session grant: "this tool may touch this (normalized) path". */
+export interface PathGrant {
+  tool: string;
+  segs: string[];
+}
+
 export interface PermState {
   autoAllow: Set<string>; // tools always allowed, no prompt
   autoAllowCwd: Set<string>; // path-tools auto-allowed within cwd
   allowedTools: Set<string>; // session "always allow this tool"
   allowedBashCommands: Set<string>; // session "always allow this exact command"
-  allowedPaths: Map<string, Set<string>>; // tool -> allowed path-keys
+  allowedPaths: PathGrant[]; // session per-path grants
   allowAll: boolean; // allow everything this session
   rejectPrompts: boolean; // automation: deny instead of prompting
 }
@@ -28,17 +36,27 @@ export type Req =
   | { kind: "path"; tool: string; segs: string[]; absolute: boolean }
   | { kind: "other"; tool: string };
 
-/** Resolve "." and ".." against a sequence of path segments. */
+/** Structural equality of two segment sequences (runtime-correct; === on arrays is reference equality). */
+export function seqEq(a: string[], b: string[]): boolean {
+  if (a.length !== b.length) return false;
+  if (a.length === 0) return true;
+  if (a[0] !== b[0]) return false;
+  return seqEq(a.slice(1), b.slice(1));
+}
+
+/** Resolve "." and ".." against a sequence of path segments, left to right. */
+export function normalizeFrom(acc: string[], segs: string[]): string[] {
+  //@ decreases segs.length
+  if (segs.length === 0) return acc;
+  const s = segs[0];
+  const rest = segs.slice(1);
+  if (s === "..") return normalizeFrom(acc.slice(0, acc.length > 0 ? acc.length - 1 : 0), rest);
+  if (s === "" || s === ".") return normalizeFrom(acc, rest);
+  return normalizeFrom([...acc, s], rest);
+}
+
 export function normalize(segs: string[]): string[] {
-  let out: string[] = [];
-  for (const s of segs) {
-    if (s === "..") {
-      out = out.slice(0, out.length > 0 ? out.length - 1 : 0);
-    } else if (s !== "" && s !== ".") {
-      out = [...out, s];
-    }
-  }
-  return out;
+  return normalizeFrom([], segs);
 }
 
 /** Resolve a requested path (relative to cwd, or absolute) to normalized segments. */
@@ -46,45 +64,54 @@ export function resolvePath(cwd: string[], segs: string[], absolute: boolean): s
   return absolute ? normalize(segs) : normalize([...cwd, ...segs]);
 }
 
-/** True iff `p` is `base` or a descendant of it (segment-prefix containment). */
-export function isWithin(base: string[], p: string[]): boolean {
-  if (p.length < base.length) return false;
-  let i = 0;
-  while (i < base.length) {
-    if (p[i] !== base[i]) return false;
-    i = i + 1;
-  }
-  return true;
+/** True iff `base` is a segment-prefix of `p`. */
+export function isPrefix(base: string[], p: string[]): boolean {
+  if (base.length === 0) return true;
+  if (p.length === 0) return false;
+  if (base[0] !== p[0]) return false;
+  return isPrefix(base.slice(1), p.slice(1));
 }
 
-/** Stable key for an allowed-path set. */
-export function pathKey(segs: string[]): string {
-  return "/" + segs.join("/");
+/** True iff `p` is `base` or a descendant of it (segment-prefix containment). */
+export function isWithin(base: string[], p: string[]): boolean {
+  return isPrefix(base, p);
+}
+
+/** True iff some recorded grant covers (tool, resolved path). */
+export function pathGranted(grants: PathGrant[], tool: string, resolved: string[]): boolean {
+  if (grants.length === 0) return false;
+  const g = grants[0];
+  if (g.tool === tool && seqEq(g.segs, resolved)) return true;
+  return pathGranted(grants.slice(1), tool, resolved);
 }
 
 /**
- * The pure access decision, mirroring henri's PermissionManager.check()
- * branch-for-branch. Assumes the call requires permission (the gate
- * short-circuits no-permission tools before calling this).
+ * The justification predicate: true exactly when the call has a recorded reason
+ * to be allowed. This IS the soundness contract — decide() returns "Allow" iff
+ * isAllowed() holds, so there is no unjustified path to Allow.
+ */
+export function isAllowed(st: PermState, cwd: string[], req: Req): boolean {
+  if (st.allowAll) return true;
+  switch (req.kind) {
+    case "bash":
+      return st.autoAllow.has("bash") || st.allowedBashCommands.has(req.command);
+    case "path": {
+      if (st.autoAllow.has(req.tool)) return true;
+      const resolved = resolvePath(cwd, req.segs, req.absolute);
+      return pathGranted(st.allowedPaths, req.tool, resolved) || (st.autoAllowCwd.has(req.tool) && isWithin(cwd, resolved));
+    }
+    case "other":
+      return st.autoAllow.has(req.tool) || st.allowedTools.has(req.tool);
+  }
+}
+
+/**
+ * The pure access decision. Mirrors henri's PermissionManager.check(): assumes
+ * the call requires permission (the gate short-circuits no-permission tools).
  */
 export function decide(st: PermState, cwd: string[], req: Req): Outcome {
-  if (st.allowAll) return "Allow";
-
-  const toolName = req.kind === "bash" ? "bash" : req.tool;
-  if (st.autoAllow.has(toolName)) return "Allow";
-
-  if (req.kind === "bash") {
-    if (st.allowedBashCommands.has(req.command)) return "Allow";
-  } else if (req.kind === "path") {
-    const resolved = resolvePath(cwd, req.segs, req.absolute);
-    const key = pathKey(resolved);
-    const allowed = st.allowedPaths.get(req.tool);
-    if (allowed !== undefined && allowed.has(key)) return "Allow";
-    if (st.autoAllowCwd.has(req.tool) && isWithin(cwd, resolved)) return "Allow";
-  } else {
-    if (st.allowedTools.has(req.tool)) return "Allow";
-  }
-
+  //@ ensures (\result === "Allow") === isAllowed(st, cwd, req)
+  if (isAllowed(st, cwd, req)) return "Allow";
   if (st.rejectPrompts) return "Deny";
   return "Prompt";
 }

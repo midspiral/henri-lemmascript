@@ -30,7 +30,7 @@ function st(over: Partial<PermState> = {}): PermState {
     autoAllowCwd: new Set(["read_file"]),
     allowedTools: new Set(),
     allowedBashCommands: new Set(),
-    allowedPaths: new Map(),
+    allowedPaths: [],
     allowAll: false,
     rejectPrompts: false,
     ...over,
@@ -48,6 +48,9 @@ check("read escaping cwd is NOT auto-allowed", decide(st(), cwd, readEscape) ===
 check("absolute escape is NOT auto-allowed", decide(st(), cwd, readAbsEscape) === "Prompt");
 // write_file is path-based but NOT auto-allow-cwd => always prompts even within cwd
 check("write within cwd still prompts", decide(st(), cwd, { kind: "path", tool: "write_file", segs: ["a.ts"], absolute: false }) === "Prompt");
+// explicit per-path grant allows exactly that resolved path
+check("explicit path grant allows", decide(st({ allowedPaths: [{ tool: "write_file", segs: ["Users", "namin", "code", "a.ts"] }] }), cwd, { kind: "path", tool: "write_file", segs: ["a.ts"], absolute: false }) === "Allow");
+check("path grant doesn't leak to other path", decide(st({ allowedPaths: [{ tool: "write_file", segs: ["Users", "namin", "code", "a.ts"] }] }), cwd, { kind: "path", tool: "write_file", segs: ["b.ts"], absolute: false }) === "Prompt");
 // exact bash command grant
 check("exact bash command allowed", decide(st({ allowedBashCommands: new Set(["ls -la"]) }), cwd, { kind: "bash", command: "ls -la" }) === "Allow");
 check("different bash command prompts", decide(st({ allowedBashCommands: new Set(["ls -la"]) }), cwd, { kind: "bash", command: "rm -rf /" }) === "Prompt");

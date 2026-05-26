@@ -236,7 +236,14 @@ changes (selected by `--provider`).
   interface with **Anthropic and Bedrock** backends + tools + *unverified*
   permissions/transcript/hooks. Typechecks clean; boots and reaches the live API;
   `test/smoke.ts` exercises the core logic (29 checks incl. P2/P3/P4/T1/T2/H1/H3).
-- **Phase 1 — Verify `permissions.ts`** (P1–P4). The security headline.
+- **Phase 1 — Verify `permissions.ts`** (P1–P4). ✅ *Done.* `lsc check` green:
+  13 verified, 0 errors. P1 soundness is the auto-discharged `decide_ensures`
+  (`decide == Allow ⟺ isAllowed`); P2 containment proven three ways
+  (`P2_AutoGrantImpliesWithin`, `P2_NoEscape`, and a concrete `../../x` escape
+  witness); P3 monotonicity for bash/path/allow-all grants (with a
+  `pathGranted`-append induction lemma); P4 `rejectPrompts` is deny-only. Paths
+  modeled as recursive segment normalization (`normalizeFrom`/`isWithin`), so the
+  shell is trusted only to `resolve().split('/')`.
 - **Phase 2 — Verify `transcript.ts`** (T1–T2). The no-orphan loop invariant.
 - **Phase 3 — Verify `hooks.ts`** (H1–H4), including the dedup fix and the §3.4 link.
 - **Phase 4 — Stretch: `edit_file` faithful-splice.** The uniqueness logic

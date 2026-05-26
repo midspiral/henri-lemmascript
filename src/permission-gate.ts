@@ -6,7 +6,7 @@
 
 import type { ToolCall } from "./messages.ts";
 import type { Tool } from "./tools/base.ts";
-import { decide, normalize, pathKey, resolvePath, type PermState, type Req } from "./permissions.ts";
+import { decide, normalize, resolvePath, type PermState, type Req } from "./permissions.ts";
 import { color, panel } from "./ui.ts";
 
 export const DEFAULT_PATH_BASED = new Set(["grep", "glob", "read_file", "write_file", "edit_file"]);
@@ -18,7 +18,7 @@ export function emptyState(autoAllow: Set<string>, autoAllowCwd: Set<string>, re
     autoAllowCwd,
     allowedTools: new Set(),
     allowedBashCommands: new Set(),
-    allowedPaths: new Map(),
+    allowedPaths: [],
     allowAll: false,
     rejectPrompts,
   };
@@ -91,14 +91,9 @@ export class PermissionGate {
       this.state.allowedBashCommands.add(req.command);
       console.log(color.dim("Will allow this exact command for this session"));
     } else if (req.kind === "path") {
-      const key = pathKey(resolvePath(this.cwd, req.segs, req.absolute));
-      let set = this.state.allowedPaths.get(req.tool);
-      if (!set) {
-        set = new Set();
-        this.state.allowedPaths.set(req.tool, set);
-      }
-      set.add(key);
-      console.log(color.dim(`Will allow ${req.tool} access to '${key}' for this session`));
+      const resolved = resolvePath(this.cwd, req.segs, req.absolute);
+      this.state.allowedPaths.push({ tool: req.tool, segs: resolved });
+      console.log(color.dim(`Will allow ${req.tool} access to '/${resolved.join("/")}' for this session`));
     } else {
       this.state.allowedTools.add(req.tool);
       console.log(color.dim(`Will allow '${req.tool}' for this session`));

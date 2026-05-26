@@ -12,10 +12,12 @@ imported directly by the live agent. See [DESIGN.md](DESIGN.md).
 ## Status
 
 - **Phase 0 — runnable skeleton: done.** Multi-provider agent (Anthropic + Bedrock),
-  the full tool set, permissions/transcript/hooks written in fragment-friendly TS
-  (not yet annotated).
-- **Phases 1–3 — verification (next):** `permissions.ts` (path-traversal containment),
-  `transcript.ts` (no-orphan tool-result invariant), `hooks.ts` (merge correctness).
+  the full tool set, permissions/transcript/hooks written in fragment-friendly TS.
+- **Phase 1 — `permissions.ts` verified: done.** `lsc check` green (13 Dafny VCs,
+  0 errors): soundness, path-traversal containment, grant monotonicity, reject-safety.
+  Proofs in [`src/permissions.dfy`](src/permissions.dfy).
+- **Phases 2–3 — verification (next):** `transcript.ts` (no-orphan tool-result
+  invariant), `hooks.ts` (merge correctness + the dedup fix).
 
 ## Run
 
