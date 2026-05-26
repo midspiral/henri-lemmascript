@@ -11,7 +11,8 @@ import type { Hook } from "./hooks.ts";
 
 const HELP = `henri-lemmascript — a hackable agent CLI with a LemmaScript-verified core.
 
-Usage: npm run henri -- [options]
+Usage: henri [options]            (after 'npm link')
+   or: npm run henri -- [options]
 
 Options:
   -p, --provider <name>  LLM provider: ${PROVIDERS.join(" | ")} (default: ${DEFAULT_PROVIDER})

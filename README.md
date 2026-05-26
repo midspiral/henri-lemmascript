@@ -42,6 +42,13 @@ npm run henri -- --provider bedrock --region us-east-1
 npm run henri -- --help    # all options
 ```
 
+Or install a global `henri` command (runs the TypeScript directly via `tsx`):
+
+```sh
+npm link                   # one-time; symlinks the `henri` bin
+henri --provider bedrock   # then run from anywhere
+```
+
 ## Develop
 
 ```sh
