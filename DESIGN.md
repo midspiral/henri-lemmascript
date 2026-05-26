@@ -195,18 +195,31 @@ Explicitly outside the verified core, and why it's acceptable:
 ```
 henri-lemmascript/
 ├── DESIGN.md
-├── package.json            # lemmascript + tsx/tsc + provider SDK deps
+├── package.json            # tsx/tsc + provider SDKs; scripts: henri, test, gen, check
+├── tsconfig.json
 ├── src/
-│   ├── permissions.ts      # VERIFIED  (+ permissions.dfy.gen / .dfy)
-│   ├── transcript.ts       # VERIFIED  (+ transcript.dfy.gen / .dfy)
-│   ├── hooks.ts            # VERIFIED  (+ hooks.dfy.gen / .dfy)
-│   ├── messages.ts         # shared types (Msg, ToolCall, ToolResult)
-│   ├── agent.ts            # stream loop; gates via decide(), threads via runToolCalls()
-│   ├── cli.ts              # entry point, arg parsing, provider selection
-│   ├── tools/              # bash/read/write/edit/grep/glob/webfetch (effectful)
-│   └── providers/          # base.ts (Provider iface) + anthropic.ts + bedrock.ts
-└── (Dafny artifacts generated next to each verified .ts)
+│   ├── permissions.ts      # VERIFIED core: decide / normalize / isWithin  (Phase 1)
+│   ├── transcript.ts       # VERIFIED core: wellFormed / pairs / makeResults (Phase 2)
+│   ├── hooks.ts            # VERIFIED core: mergeTools / mergePerms          (Phase 3)
+│   ├── messages.ts         # runtime conversation types (Message, ToolCall, ToolResult)
+│   ├── permission-gate.ts  # SHELL: stateful wrapper — prompts, records grants, calls decide()
+│   ├── agent.ts            # SHELL: stream loop; gates tools, threads results, asserts wellFormed
+│   ├── ui.ts               # SHELL: ANSI colors, panel, spinner
+│   ├── cli.ts              # SHELL: entry point, arg parsing, provider selection
+│   ├── config.ts           # provider defaults + HENRI_* resolution
+│   ├── tools/base.ts       # SHELL: bash/read/write/edit/grep/glob/web_fetch (effectful)
+│   └── providers/          # SHELL: base.ts (Provider iface) + anthropic.ts + bedrock.ts + index.ts
+├── test/smoke.ts           # runtime witnesses for P1–P4 / T1–T2 / H1–H3
+└── (Dafny artifacts generated next to each verified .ts in a later phase)
 ```
+
+**Verification-phase constraint (noted, deferred):** LemmaScript does not support
+cross-file type imports. The three verified modules each define standalone types
+today (e.g. `transcript.ts` has its own `TToolCall`/`TToolResult`, projected from
+the runtime `messages.ts` types via `toTranscript` in the shell). When we annotate,
+each module is extracted independently; if shared types force the issue we merge into
+a single `domain.ts` (the collab-todo / talktimer pattern). Tool `args` and result
+`content` are kept opaque to the proofs.
 
 **Provider scope:** the agent supports multiple providers behind one `Provider`
 interface (`stream()` → events), as in henri. Ship **Anthropic and Bedrock** as
@@ -219,9 +232,10 @@ changes (selected by `--provider`).
 
 ## 6. Sequencing
 
-- **Phase 0 — Runnable skeleton.** TS port that runs: `cli` + `Provider` interface
-  with **Anthropic and Bedrock** backends + tools + *unverified*
-  permissions/transcript/hooks. Proves "it's a real agent" against both providers.
+- **Phase 0 — Runnable skeleton.** ✅ *Done.* TS port that runs: `cli` + `Provider`
+  interface with **Anthropic and Bedrock** backends + tools + *unverified*
+  permissions/transcript/hooks. Typechecks clean; boots and reaches the live API;
+  `test/smoke.ts` exercises the core logic (29 checks incl. P2/P3/P4/T1/T2/H1/H3).
 - **Phase 1 — Verify `permissions.ts`** (P1–P4). The security headline.
 - **Phase 2 — Verify `transcript.ts`** (T1–T2). The no-orphan loop invariant.
 - **Phase 3 — Verify `hooks.ts`** (H1–H4), including the dedup fix and the §3.4 link.

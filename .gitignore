@@ -1,0 +1,21 @@
+# Node
+node_modules/
+dist/
+*.log
+
+# Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# henri
+.henri_history
+
+# Note: Dafny artifacts (*.dfy, *.dfy.gen) are tracked — they are the proof
+# source of truth and the regeneratable merge base, per LemmaScript convention.

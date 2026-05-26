@@ -1,0 +1,29 @@
+{
+  "name": "henri-lemmascript",
+  "version": "0.1.0",
+  "description": "A hackable agent CLI in TypeScript, with its security- and protocol-critical core verified via LemmaScript (Dafny).",
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "henri": "src/cli.ts"
+  },
+  "scripts": {
+    "henri": "tsx src/cli.ts",
+    "test": "tsx test/smoke.ts",
+    "typecheck": "tsc --noEmit",
+    "gen": "node ../LemmaScript/tools/dist/lsc.js gen --backend=dafny",
+    "check": "node ../LemmaScript/tools/dist/lsc.js check --backend=dafny"
+  },
+  "license": "MIT",
+  "devDependencies": {
+    "@types/node": "^25.5.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.7.0"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.98.0",
+    "@aws-sdk/client-bedrock-runtime": "^3.1053.0"
+  }
+}
