@@ -47,7 +47,15 @@ npm run henri -- --help    # all options
 ```sh
 npm run typecheck   # tsc --noEmit
 npm test            # test/smoke.ts — runtime witnesses for the verified properties
+npm run verify      # regenerate + verify all Dafny proofs (LemmaScript-files.txt) — 48 VCs
 ```
+
+`npm run verify` runs `../LemmaScript/tools/check.sh dafny` over the modules listed in
+[`LemmaScript-files.txt`](LemmaScript-files.txt): it regenerates each `.dfy.gen` merge
+base, enforces the additions-only invariant against the proof `.dfy`, and runs Dafny.
+CI ([`.github/workflows/lemmascript.yml`](.github/workflows/lemmascript.yml)) does the same plus
+typecheck + smoke, and fails if any generated file is stale. Requires a sibling
+`../LemmaScript` checkout and Dafny ≥ 4.x.
 
 ## The verified core
 
