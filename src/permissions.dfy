@@ -170,3 +170,20 @@ lemma P4_RejectIsDenyOnly(st: PermState, cwd: seq<string>, req: Req)
   ensures !decide(st.(rejectPrompts := true), cwd, req).Prompt?
 {
 }
+
+// ── H4 link (composes with merge.dfy's H4_GatherGrows) ───────────────────────
+
+// Growing the auto-allow sets never revokes an existing Allow. mergePerms only
+// ever grows autoAllow/autoAllowCwd (merge.dfy: H4_GatherGrows), so by this
+// lemma adding hooks can never reduce what decide() permits.
+lemma P3_GrowAutoSetsMonotone(st: PermState, st': PermState, cwd: seq<string>, req: Req)
+  requires st.autoAllow <= st'.autoAllow
+  requires st.autoAllowCwd <= st'.autoAllowCwd
+  requires st'.allowedTools == st.allowedTools
+  requires st'.allowedBashCommands == st.allowedBashCommands
+  requires st'.allowedPaths == st.allowedPaths
+  requires st'.allowAll == st.allowAll
+  requires decide(st, cwd, req).Allow?
+  ensures decide(st', cwd, req).Allow?
+{
+}

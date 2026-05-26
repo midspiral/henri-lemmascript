@@ -85,6 +85,10 @@ const hooks: Hook[] = [{ tools: [tool("dafny_verify")], removeTools: ["bash"] }]
 const merged = mergeTools(defaults, hooks);
 check("H1: removed tool gone", !merged.some((t) => t.name === "bash"));
 check("H1: hook tool present", merged.some((t) => t.name === "dafny_verify"));
+// H2: two hooks registering the same tool name collapse to one (the fix)
+const dupMerged = mergeTools([tool("bash")], [{ tools: [tool("bash")] }, { tools: [tool("bash")] }]);
+check("H2: duplicate names deduped", dupMerged.filter((t) => t.name === "bash").length === 1);
+check("H2: result names distinct", new Set(dupMerged.map((t) => t.name)).size === dupMerged.length);
 
 const base: PermConfig = { pathBased: new Set(["read_file"]), autoAllowCwd: new Set(["read_file"]), autoAllow: new Set(), rejectPrompts: false };
 const mp = mergePerms(base, [{ autoAllow: ["dafny_verify"], pathBased: ["dafny_verify"], rejectPrompts: true }]);

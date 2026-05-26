@@ -19,7 +19,13 @@ imported directly by the live agent. See [DESIGN.md](DESIGN.md).
 - **Phase 2 — `transcript.ts` verified: done.** `lsc check` green (10 Dafny VCs,
   0 errors): tool-call/result pairing (T1) and the no-orphan invariant preserved by
   the loop (T2). Proofs in [`src/transcript.dfy`](src/transcript.dfy).
-- **Phase 3 — verification (next):** `hooks.ts` (merge correctness + the dedup fix).
+- **Phase 3 — `merge.ts` verified: done.** `lsc check` green (20 Dafny VCs, 0 errors):
+  removal (H1), name-uniqueness/the dedup fix (H2), coverage, order-independence (H3),
+  additivity (H4, composed with permissions' P3). `hooks.ts` (shell) calls the verified
+  core. Proofs in [`src/merge.dfy`](src/merge.dfy).
+
+**All three verified cores are proven (44 Dafny VCs, 0 errors).** The runnable agent
+imports them directly.
 
 ## Run
 
@@ -48,10 +54,10 @@ npm test            # test/smoke.ts — runtime witnesses for the verified prope
 |--------|--------|----------|
 | `src/permissions.ts` | `decide()` soundness, **path-traversal containment**, grant monotonicity, reject-prompt safety | a path escaping cwd is never auto-granted |
 | `src/transcript.ts` | tool-call/result pairing + **no-orphan invariant** of the loop | the conversation sent to the provider is always well-formed |
-| `src/hooks.ts` | merge removal, **name-uniqueness (a fix)**, order-independence, additivity | hooks only ever add access |
+| `src/merge.ts` | merge removal, **name-uniqueness (a fix)**, order-independence, additivity | hooks only ever add access |
 
-The shell (`agent.ts`, `permission-gate.ts`, `providers/`, `tools/`, `ui.ts`, `cli.ts`)
-is unverified and gates every action through the core.
+The shell (`agent.ts`, `permission-gate.ts`, `hooks.ts`, `providers/`, `tools/`,
+`ui.ts`, `cli.ts`) is unverified and gates every action through the core.
 
 ## License
 

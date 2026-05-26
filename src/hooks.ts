@@ -1,18 +1,18 @@
 // Hook / config merge — how henri assembles its tool list and permission tables
 // from a base plus a list of hooks.
 //
-// VERIFICATION TARGET (Phase 3). Properties to prove (see DESIGN.md §3.3):
-//   H1 removal     — no removed tool name survives the merge
-//   H2 uniqueness  — result tool names are distinct (FIX: henri concatenates
-//                    hook.TOOLS without de-duping; Phase 3 adds dedup + proof)
-//   H3 order-indep — permission-set merge is union + OR, so hook order is moot
-//   H4 additivity  — merging only grows allow-sets, so by P3 it never reduces
-//                    what decide() permits
+// This is unverified shell: it works with real Tool objects (which carry a
+// function-valued `execute`, outside the fragment). All the name- and
+// set-membership logic is delegated to the VERIFIED core in merge.ts, so the
+// proven guarantees (H1 removal, H2 uniqueness, H3/H4 for permissions) transfer
+// to the live tool table and permission config.
 //
-// NOTE: this Phase-0 version mirrors henri faithfully, including the
-// interleaved add-then-remove tool semantics and the *absence* of name dedup.
+// NOTE: this diverges from henri intentionally (the H2 fix). Henri concatenated
+// hook.TOOLS with no name dedup, so two hooks could register the same name;
+// here mergeNames de-dupes (keeping the first occurrence) and that is proved.
 
 import type { Tool } from "./tools/base.ts";
+import { gather, mergeNames } from "./merge.ts";
 
 export interface Hook {
   tools?: Tool[];
@@ -33,35 +33,35 @@ export interface PermConfig {
 }
 
 /**
- * Merge hook tools into the defaults. Faithful to henri: for each hook, append
- * its tools then drop anything that hook removes (so order is significant and a
- * later hook can re-add what an earlier one removed). H2 dedup is deferred.
+ * Merge hook tools into the defaults. The set and order of result names is
+ * computed by the verified `mergeNames` (no removed name survives — H1; names
+ * are distinct — H2); we then map each kept name back to the first Tool object
+ * that carries it.
  */
 export function mergeTools(defaults: Tool[], hooks: Hook[]): Tool[] {
-  let tools = [...defaults];
+  const all: Tool[] = [...defaults];
+  const removes: string[] = [];
   for (const h of hooks) {
-    if (h.tools) tools = [...tools, ...h.tools];
-    if (h.removeTools) {
-      const remove = new Set(h.removeTools);
-      tools = tools.filter((t) => !remove.has(t.name));
-    }
+    if (h.tools) all.push(...h.tools);
+    if (h.removeTools) removes.push(...h.removeTools);
   }
-  return tools;
+  const keptNames = mergeNames(all.map((t) => t.name), removes);
+  const result: Tool[] = [];
+  for (const name of keptNames) {
+    const tool = all.find((t) => t.name === name);
+    if (tool) result.push(tool);
+  }
+  return result;
 }
 
-/** Merge hook permission config: union the sets, OR the flags. Order-independent. */
+/** Merge hook permission config: each field is the verified `gather` of base + contributions (order-independent — H3, additive — H4); flags are OR-ed. */
 export function mergePerms(base: PermConfig, hooks: Hook[]): PermConfig {
-  const pathBased = new Set(base.pathBased);
-  const autoAllowCwd = new Set(base.autoAllowCwd);
-  const autoAllow = new Set(base.autoAllow);
+  const autoAllow = new Set(gather([...base.autoAllow], hooks.map((h) => h.autoAllow ?? [])));
+  const autoAllowCwd = new Set(gather([...base.autoAllowCwd], hooks.map((h) => h.autoAllowCwd ?? [])));
+  const pathBased = new Set(gather([...base.pathBased], hooks.map((h) => h.pathBased ?? [])));
   let rejectPrompts = base.rejectPrompts;
-  for (const h of hooks) {
-    for (const s of h.pathBased ?? []) pathBased.add(s);
-    for (const s of h.autoAllowCwd ?? []) autoAllowCwd.add(s);
-    for (const s of h.autoAllow ?? []) autoAllow.add(s);
-    if (h.rejectPrompts) rejectPrompts = true;
-  }
-  return { pathBased, autoAllowCwd, autoAllow, rejectPrompts };
+  for (const h of hooks) if (h.rejectPrompts) rejectPrompts = true;
+  return { autoAllow, autoAllowCwd, pathBased, rejectPrompts };
 }
 
 /** Concatenate hook system-prompt fragments (henri appends them in order). */

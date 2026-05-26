@@ -147,15 +147,25 @@ paths preserve the id. The proof obligation:
   yields a well-formed transcript. Corollary: every `tool_result` id matches a call
   in the immediately-preceding assistant message, and every call is answered.
 
-### 3.3 `hooks.ts` — config / hook merge
+### 3.3 `merge.ts` (verified) + `hooks.ts` (shell) — config / hook merge
 
 Henri builds its tool list and permission tables by merging hooks:
-`tools = defaults + Σ hook.TOOLS`, filtered by the union of `REMOVE_TOOLS`; permission
-sets are unioned; `reject_prompts` is OR-ed.
+`tools = defaults + Σ hook.TOOLS`, with removed names dropped; permission sets are
+unioned; `reject_prompts` is OR-ed.
+
+The real `Tool` carries a function-valued `execute` (outside the fragment), and
+LemmaScript has no cross-file type imports — so the verifiable logic, which is
+entirely about tool **names** (strings) and permission **contributions**, lives in
+a self-contained verified `merge.ts`; the production `hooks.ts` (shell) works with
+real `Tool`/`Hook` objects and *calls* the verified functions, so the proven
+guarantees transfer to the live tables.
 
 ```ts
-export function mergeTools(defaults: Tool[], hookTools: Tool[][], removes: Set<string>): Tool[]
-export function mergePerms(base: PermState, hooks: HookPerms[]): PermState
+// merge.ts (verified, over string[])
+export function mergeNames(names: string[], removes: string[]): string[] // dedup ∘ removeAll
+export function gather(base: string[], parts: string[][]): string[]       // base ++ ⋃ contributions
+// hooks.ts (shell): mergeTools(Tool[]) maps mergeNames back to Tool objects;
+//                   mergePerms(PermConfig) builds each set from gather(...).
 ```
 
 **Properties to prove:**
@@ -170,7 +180,8 @@ export function mergePerms(base: PermState, hooks: HookPerms[]): PermState
   casbin/quorum order-independence flavor.
 - **H4 — Additivity (links to §3.1).** Merging hooks only *grows* the allow-sets, so
   by **P3** it never reduces what `decide` permits. Hooks are purely additive to
-  access. (A clean cross-core theorem.)
+  access. Both halves are formal: `merge.dfy:H4_GatherGrows` (gather grows the base)
+  and `permissions.dfy:P3_GrowAutoSetsMonotone` (growing auto-allow preserves Allow).
 
 ---
 
@@ -200,7 +211,8 @@ henri-lemmascript/
 ├── src/
 │   ├── permissions.ts      # VERIFIED core: decide / normalize / isWithin  (Phase 1)
 │   ├── transcript.ts       # VERIFIED core: wellFormed / pairs / makeResults (Phase 2)
-│   ├── hooks.ts            # VERIFIED core: mergeTools / mergePerms          (Phase 3)
+│   ├── merge.ts            # VERIFIED core: mergeNames / gather               (Phase 3)
+│   ├── hooks.ts            # SHELL: Hook/Tool[] merge, calls merge.ts         (Phase 3)
 │   ├── messages.ts         # runtime conversation types (Message, ToolCall, ToolResult)
 │   ├── permission-gate.ts  # SHELL: stateful wrapper — prompts, records grants, calls decide()
 │   ├── agent.ts            # SHELL: stream loop; gates tools, threads results, asserts wellFormed
@@ -251,7 +263,13 @@ changes (selected by `--provider`).
   well-formed — is proven by induction (`WfFromAppendPair` + `WfFromImpliesLastOk`):
   no orphan tool_result can be sent and no tool_use is left unanswered. The agent
   loop calls these same functions as a live invariant each turn.
-- **Phase 3 — Verify `hooks.ts`** (H1–H4), including the dedup fix and the §3.4 link.
+- **Phase 3 — Verify `merge.ts`** (H1–H4), incl. the dedup fix and the P3 link.
+  ✅ *Done.* `lsc check` green: merge 20 verified, permissions 14 (with the H4-link
+  lemma), 0 errors. H1 removal, **H2 uniqueness (the dedup fix)**, coverage, H3
+  order-independent gather membership (+ commutativity corollary), H4 additivity
+  composed with `permissions.dfy:P3_GrowAutoSetsMonotone`. `hooks.ts` (shell) calls
+  the verified `mergeNames`/`gather`, so the live tool table and permission config
+  inherit the proofs.
 - **Phase 4 — Stretch: `edit_file` faithful-splice.** The uniqueness logic
   (`count==0` error, `count>1 && !replaceAll` error, else splice) as a string
   algorithm, in the spirit of balanced-match. Out of initial scope.
