@@ -1,3 +1,5 @@
+//@ backend dafny
+
 // The tool-call / tool-result protocol — the pure core of henri's chat loop.
 //
 // VERIFICATION TARGET (Phase 2). The agent must keep the conversation it sends
@@ -7,10 +9,11 @@
 // requirement and the pi-lemmascript "no orphaned tool_result" concern — proven
 // here as an invariant of the loop itself.
 //
-// Properties to prove (see DESIGN.md §3.2):
+// Properties (see DESIGN.md §3.2 and transcript.dfy for the proofs):
 //   T1 pairing   — makeResults(calls) has one result per call, ids in order
-//   T2 no orphan — appending {tool, makeResults(calls)} after {assistant, calls}
-//                  preserves wellFormed; every result id matches a real call
+//   T2 no orphan — appending {tool, makeResults(calls)} after a well-formed
+//                  transcript preserves wellFormed (so no orphan tool_result can
+//                  ever be sent, and no tool_use goes unanswered)
 
 export interface TToolCall {
   id: string;
@@ -29,42 +32,59 @@ export type TMsg =
 
 /** results pair 1:1 with calls, by id, in order. */
 export function pairs(calls: TToolCall[], results: TToolResult[]): boolean {
+  //@ decreases calls.length
   if (results.length !== calls.length) return false;
-  let i = 0;
-  while (i < calls.length) {
-    if (results[i].toolCallId !== calls[i].id) return false;
-    i = i + 1;
-  }
-  return true;
+  if (calls.length === 0) return true;
+  if (results[0].toolCallId !== calls[0].id) return false;
+  return pairs(calls.slice(1), results.slice(1));
 }
 
-/** The shape of results the per-call dispatch loop must produce: one per call, id preserved. */
+/** The results the per-call dispatch loop must produce: one per call, id preserved. */
 export function makeResults(calls: TToolCall[]): TToolResult[] {
-  return calls.map((c) => ({ toolCallId: c.id, isError: false }));
+  //@ decreases calls.length
+  //@ ensures \result.length === calls.length
+  //@ ensures pairs(calls, \result)
+  if (calls.length === 0) return [];
+  return [{ toolCallId: calls[0].id, isError: false }, ...makeResults(calls.slice(1))];
+}
+
+/** A message that may legally be first: not an (orphaned) tool message. */
+export function headOk(m: TMsg): boolean {
+  return m.role !== "tool";
+}
+
+/** A message that may legally be last: not an (unanswered) assistant-with-calls. */
+export function lastOk(m: TMsg): boolean {
+  if (m.role === "assistant") return m.toolCalls.length === 0;
+  return true;
 }
 
 /**
- * The conversation is well-formed when tool_use/tool_result pairing holds
- * everywhere: every assistant-with-calls is immediately followed by a tool
- * message whose results pair with the calls, and every tool message is
- * immediately preceded by an assistant-with-calls.
+ * Whether message `b` may immediately follow `a`:
+ * - an assistant-with-calls must be followed by a tool message whose results pair;
+ * - otherwise the next message must not be a tool message (no orphan tool_result).
  */
-export function wellFormed(msgs: TMsg[]): boolean {
-  let i = 0;
-  while (i < msgs.length) {
-    const m = msgs[i];
-    if (m.role === "assistant" && m.toolCalls.length > 0) {
-      if (i + 1 >= msgs.length) return false;
-      const next = msgs[i + 1];
-      if (next.role !== "tool") return false;
-      if (!pairs(m.toolCalls, next.toolResults)) return false;
+export function okAdjacent(a: TMsg, b: TMsg): boolean {
+  if (a.role === "assistant") {
+    if (a.toolCalls.length > 0) {
+      if (b.role === "tool") return pairs(a.toolCalls, b.toolResults);
+      return false;
     }
-    if (m.role === "tool") {
-      if (i === 0) return false;
-      const prev = msgs[i - 1];
-      if (prev.role !== "assistant" || prev.toolCalls.length === 0) return false;
-    }
-    i = i + 1;
+    return b.role !== "tool";
   }
-  return true;
+  return b.role !== "tool";
+}
+
+/** Interior + tail consistency: adjacency holds throughout, and the last message is a valid last. */
+export function wfFrom(msgs: TMsg[]): boolean {
+  //@ decreases msgs.length
+  if (msgs.length === 0) return true;
+  if (msgs.length === 1) return lastOk(msgs[0]);
+  return okAdjacent(msgs[0], msgs[1]) && wfFrom(msgs.slice(1));
+}
+
+/** The conversation is well-formed: valid head, valid adjacencies, valid tail. */
+export function wellFormed(msgs: TMsg[]): boolean {
+  if (msgs.length === 0) return true;
+  return headOk(msgs[0]) && wfFrom(msgs);
 }

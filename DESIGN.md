@@ -244,7 +244,13 @@ changes (selected by `--provider`).
   `pathGranted`-append induction lemma); P4 `rejectPrompts` is deny-only. Paths
   modeled as recursive segment normalization (`normalizeFrom`/`isWithin`), so the
   shell is trusted only to `resolve().split('/')`.
-- **Phase 2 — Verify `transcript.ts`** (T1–T2). The no-orphan loop invariant.
+- **Phase 2 — Verify `transcript.ts`** (T1–T2). ✅ *Done.* `lsc check` green:
+  10 verified, 0 errors. T1 pairing is the auto-discharged `makeResults_ensures`
+  (length + `pairs(calls, makeResults(calls))`). T2 — appending
+  `[assistant(calls), tool(makeResults(calls))]` to a well-formed transcript stays
+  well-formed — is proven by induction (`WfFromAppendPair` + `WfFromImpliesLastOk`):
+  no orphan tool_result can be sent and no tool_use is left unanswered. The agent
+  loop calls these same functions as a live invariant each turn.
 - **Phase 3 — Verify `hooks.ts`** (H1–H4), including the dedup fix and the §3.4 link.
 - **Phase 4 — Stretch: `edit_file` faithful-splice.** The uniqueness logic
   (`count==0` error, `count>1 && !replaceAll` error, else splice) as a string

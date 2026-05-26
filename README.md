@@ -16,8 +16,10 @@ imported directly by the live agent. See [DESIGN.md](DESIGN.md).
 - **Phase 1 — `permissions.ts` verified: done.** `lsc check` green (13 Dafny VCs,
   0 errors): soundness, path-traversal containment, grant monotonicity, reject-safety.
   Proofs in [`src/permissions.dfy`](src/permissions.dfy).
-- **Phases 2–3 — verification (next):** `transcript.ts` (no-orphan tool-result
-  invariant), `hooks.ts` (merge correctness + the dedup fix).
+- **Phase 2 — `transcript.ts` verified: done.** `lsc check` green (10 Dafny VCs,
+  0 errors): tool-call/result pairing (T1) and the no-orphan invariant preserved by
+  the loop (T2). Proofs in [`src/transcript.dfy`](src/transcript.dfy).
+- **Phase 3 — verification (next):** `hooks.ts` (merge correctness + the dedup fix).
 
 ## Run
 
