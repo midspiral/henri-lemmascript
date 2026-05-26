@@ -147,25 +147,25 @@ paths preserve the id. The proof obligation:
   yields a well-formed transcript. Corollary: every `tool_result` id matches a call
   in the immediately-preceding assistant message, and every call is answered.
 
-### 3.3 `merge.ts` (verified) + `hooks.ts` (shell) — config / hook merge
+### 3.3 `hooks.ts` — config / hook merge (verified in place)
 
 Henri builds its tool list and permission tables by merging hooks:
 `tools = defaults + Σ hook.TOOLS`, with removed names dropped; permission sets are
 unioned; `reject_prompts` is OR-ed.
 
-The real `Tool` carries a function-valued `execute` (outside the fragment), and
-LemmaScript has no cross-file type imports — so the verifiable logic, which is
-entirely about tool **names** (strings) and permission **contributions**, lives in
-a self-contained verified `merge.ts`; the production `hooks.ts` (shell) works with
-real `Tool`/`Hook` objects and *calls* the verified functions, so the proven
-guarantees transfer to the live tables.
+The real `Tool` carries a function-valued `execute` (outside the fragment). Rather
+than verify a parallel string model (which would reintroduce the very semantic gap
+LemmaScript exists to avoid, §2), `//@ declare-type Tool { name: string }` shadows
+`Tool` for the prover — modeling it by the only field the merge reasons about —
+while the runtime uses the real `Tool` unchanged. So the **actual** `mergeTools`
+is verified, with no gap. `mergePerms`/`mergeSystemPrompt` build `Set`s/strings
+outside the fragment, so they stay shell (selective `//@ verify`) as thin wrappers
+over the verified `gather`.
 
 ```ts
-// merge.ts (verified, over string[])
-export function mergeNames(names: string[], removes: string[]): string[] // dedup ∘ removeAll
-export function gather(base: string[], parts: string[][]): string[]       // base ++ ⋃ contributions
-// hooks.ts (shell): mergeTools(Tool[]) maps mergeNames back to Tool objects;
-//                   mergePerms(PermConfig) builds each set from gather(...).
+//@ declare-type Tool { name: string }
+export function mergeTools(defaults: Tool[], hooks: Hook[]): Tool[] // verified: H1/H2/coverage over the real Tool[]
+export function gather(base: string[], parts: string[][]): string[] // verified: H3/H4 (used by mergePerms)
 ```
 
 **Properties to prove:**
@@ -180,7 +180,7 @@ export function gather(base: string[], parts: string[][]): string[]       // bas
   casbin/quorum order-independence flavor.
 - **H4 — Additivity (links to §3.1).** Merging hooks only *grows* the allow-sets, so
   by **P3** it never reduces what `decide` permits. Hooks are purely additive to
-  access. Both halves are formal: `merge.dfy:H4_GatherGrows` (gather grows the base)
+  access. Both halves are formal: `hooks.dfy:H4_GatherGrows` (gather grows the base)
   and `permissions.dfy:P3_GrowAutoSetsMonotone` (growing auto-allow preserves Allow).
 
 ---
@@ -211,8 +211,7 @@ henri-lemmascript/
 ├── src/
 │   ├── permissions.ts      # VERIFIED core: decide / normalize / isWithin  (Phase 1)
 │   ├── transcript.ts       # VERIFIED core: wellFormed / pairs / makeResults (Phase 2)
-│   ├── merge.ts            # VERIFIED core: mergeNames / gather               (Phase 3)
-│   ├── hooks.ts            # SHELL: Hook/Tool[] merge, calls merge.ts         (Phase 3)
+│   ├── hooks.ts            # VERIFIED core: mergeTools / gather (declare-type Tool) (Phase 3)
 │   ├── messages.ts         # runtime conversation types (Message, ToolCall, ToolResult)
 │   ├── permission-gate.ts  # SHELL: stateful wrapper — prompts, records grants, calls decide()
 │   ├── agent.ts            # SHELL: stream loop; gates tools, threads results, asserts wellFormed
@@ -225,13 +224,19 @@ henri-lemmascript/
 └── (Dafny artifacts generated next to each verified .ts in a later phase)
 ```
 
-**Verification-phase constraint (noted, deferred):** LemmaScript does not support
-cross-file type imports. The three verified modules each define standalone types
-today (e.g. `transcript.ts` has its own `TToolCall`/`TToolResult`, projected from
-the runtime `messages.ts` types via `toTranscript` in the shell). When we annotate,
-each module is extracted independently; if shared types force the issue we merge into
-a single `domain.ts` (the collab-todo / talktimer pattern). Tool `args` and result
-`content` are kept opaque to the proofs.
+**Fragment-boundary tactics used.** LemmaScript doesn't model function-valued
+fields or cross-file type imports, but it provides escape hatches rather than
+forcing a parallel model:
+- `transcript.ts` defines standalone `TToolCall`/`TToolResult`, projected from the
+  runtime `messages.ts` types via `toTranscript` in the shell.
+- `hooks.ts` uses `//@ declare-type Tool { name: string }` to shadow the real
+  `Tool` (which carries a function-valued `execute`) by the one field the merge
+  reasons about — so the *actual* `mergeTools` is verified, no parallel model.
+- `//@ verify` (selective mode) verifies the in-fragment merge functions while
+  leaving `Set`-building wrappers (`mergePerms`) as shell.
+- Cross-file calls auto-extern as `function {:axiom}` with lifted contracts;
+  `//@ extern` does the same for in-file opaque functions (regex/IO) — available
+  for the Phase 4 `edit_file` stretch goal.
 
 **Provider scope:** the agent supports multiple providers behind one `Provider`
 interface (`stream()` → events), as in henri. Ship **Anthropic and Bedrock** as
@@ -263,13 +268,14 @@ changes (selected by `--provider`).
   well-formed — is proven by induction (`WfFromAppendPair` + `WfFromImpliesLastOk`):
   no orphan tool_result can be sent and no tool_use is left unanswered. The agent
   loop calls these same functions as a live invariant each turn.
-- **Phase 3 — Verify `merge.ts`** (H1–H4), incl. the dedup fix and the P3 link.
-  ✅ *Done.* `lsc check` green: merge 20 verified, permissions 14 (with the H4-link
-  lemma), 0 errors. H1 removal, **H2 uniqueness (the dedup fix)**, coverage, H3
-  order-independent gather membership (+ commutativity corollary), H4 additivity
-  composed with `permissions.dfy:P3_GrowAutoSetsMonotone`. `hooks.ts` (shell) calls
-  the verified `mergeNames`/`gather`, so the live tool table and permission config
-  inherit the proofs.
+- **Phase 3 — Verify `hooks.ts`** (H1–H4), incl. the dedup fix and the P3 link.
+  ✅ *Done.* `lsc check` green: hooks 24 verified, permissions 14 (with the H4-link
+  lemma), 0 errors. Verified **in place** via `//@ declare-type Tool { name: string }`
+  — the real `mergeTools(Tool[])` is the proof target, no parallel model. H1 removal,
+  **H2 uniqueness (the dedup fix)**, coverage, H3 order-independent gather membership
+  (+ commutativity corollary), H4 additivity composed with
+  `permissions.dfy:P3_GrowAutoSetsMonotone`. `mergePerms`/`mergeSystemPrompt` stay
+  shell (selective `//@ verify`) as wrappers over the verified `gather`.
 - **Phase 4 — Stretch: `edit_file` faithful-splice.** The uniqueness logic
   (`count==0` error, `count>1 && !replaceAll` error, else splice) as a string
   algorithm, in the spirit of balanced-match. Out of initial scope.
