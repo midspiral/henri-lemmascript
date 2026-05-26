@@ -1,8 +1,8 @@
 # henri-lemmascript
 
-A hackable agent CLI in TypeScript — a port of [henri](../henri) — whose
+A hackable agent CLI in TypeScript — a port of [henri](https://github.com/metareflection/henri/) — whose
 security- and protocol-critical core is verified via
-[LemmaScript](../LemmaScript) (Dafny backend).
+[LemmaScript](https://github.com/midspiral/LemmaScript) (Dafny backend).
 
 It is **not** a line-by-line port. Henri's bulk is effectful glue (streaming,
 terminal UI, subprocess, provider SDKs) that lies outside LemmaScript's verifiable
@@ -58,6 +58,9 @@ typecheck + smoke, and fails if any generated file is stale. Requires a sibling
 `../LemmaScript` checkout and Dafny ≥ 4.x.
 
 ## The verified core
+
+For the exact theorems (every lemma, its statement, and the proof techniques), see
+**[README_LemmaScript.md](README_LemmaScript.md)**.
 
 | Module | Proves | Headline |
 |--------|--------|----------|

@@ -3,8 +3,8 @@
 **Status:** draft (design conversation in progress)
 **Date:** 2026-05-25
 
-A port of [henri](../henri) — a small, hackable agent CLI — to TypeScript, with its
-correctness- and security-critical decision logic verified via [LemmaScript](../LemmaScript)
+A port of [henri](https://github.com/metareflection/henri/) — a small, hackable agent CLI — to TypeScript, with its
+correctness- and security-critical decision logic verified via [LemmaScript](https://github.com/midspiral/LemmaScript)
 (Dafny backend).
 
 ---
@@ -119,7 +119,7 @@ string-parsing limits and makes the traversal proof self-contained.
 Henri's chat loop must keep the conversation it sends to the provider well-formed:
 every `tool_use` is answered by exactly one `tool_result` with the matching id, in
 order — the Anthropic API requirement, and the exact concern of the
-[pi-lemmascript](../LemmaScript/README.md) orphaned-tool-result work, but proven here
+[pi-lemmascript](https://github.com/midspiral/pi-lemmascript) orphaned-tool-result work, but proven here
 as an **invariant of the agent loop itself.**
 
 ```ts
