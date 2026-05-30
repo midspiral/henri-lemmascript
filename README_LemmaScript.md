@@ -4,10 +4,10 @@ A hackable agent CLI (a TypeScript port of [henri](https://github.com/metareflec
 protocol-critical decision logic is **verified with [LemmaScript](https://github.com/midspiral/LemmaScript)
 (Dafny backend)** and imported directly by the live, runnable agent — it streams
 against Anthropic and AWS Bedrock end to end. The proven functions are not a
-side model: `decide()` gates every tool call, and `pairs`/`wellFormed` are checked
-on every turn of the real loop.
+side model: `decide()` gates every tool call, `pairs`/`wellFormed` are checked
+on every turn of the real loop, and `editFile`/`replaceFirst` back the edit tool.
 
-**48 Dafny verification conditions, 0 errors**, across three modules. Reproduce with
+**60 Dafny verification conditions, 0 errors**, across four modules. Reproduce with
 `npm run verify` (regenerates each `.dfy.gen` merge base, enforces additions-only
 against the proof `.dfy`, runs Dafny); CI in
 [`.github/workflows/lemmascript.yml`](.github/workflows/lemmascript.yml).
@@ -75,6 +75,28 @@ outside the fragment and stay shell (selective `//@ verify`) over the verified `
 `H4` is a cross-module composition: the additivity half lives in `hooks.dfy`, the
 monotonicity half in `permissions.dfy`.
 
+## 4. `edit.ts` — the edit-file splice (12 VCs)
+
+The pure core of the `edit_file` tool (`tools/base.ts`): find `old` in a file and
+replace it — not-found is an error, more than one occurrence without `replace_all`
+is an error, otherwise splice. The **decision** and the **single-occurrence
+splice** are proved. Strings are modeled as char sequences (`string[]`); the shell
+projects `string <-> string[]` via `[...s]` / `join("")` — a trusted boundary, like
+the path projection in §1.
+
+| Property | Lemma | Statement |
+|----------|-------|-----------|
+| **E1 soundness** | `editFile_ensures` | the verdict matches the occurrence count branch-for-branch: `NotFound ⟺ ¬occurs`, `Ambiguous ⟺ manyOcc ∧ ¬all`, `Replaced ⟺ occurs ∧ (¬manyOcc ∨ all)`. |
+| **E2 identity** | `E2_NoMatchIdentity` | replacing text that does not occur leaves the content unchanged. |
+| **E3 splice no-op** *(faithfulness)* | `E3_SpliceNoop` | replacing `old` with `old` is the identity — the splice touches exactly the matched span and preserves everything else. |
+| length law | `E_Len` | a single splice changes the length by exactly `\|repl\| − \|old\|`. |
+
+The faithfulness core is `MatchSplit`: `matchesAt(hay, old) ⟹ old + dropMatch(hay,
+old) == hay` — the matched prefix is *exactly* `old`. Every recursion advances one
+character (or shrinks `old`), so termination and in-bounds slicing are structural —
+no overlap/length side-lemmas needed. The live tool calls `editFile` for the verdict
+and `replaceFirst` for the single splice; the all-occurrence join stays shell.
+
 ---
 
 ## Trust boundary (what is *not* verified)
@@ -85,8 +107,9 @@ monotonicity half in `permissions.dfy`.
   — but every actual allow/deny flows through the verified `decide`.
 - **Boundary projections trusted to be faithful:** the shell does
   `path.resolve().split('/')` (the in-core `normalize` does the rest); projects runtime
-  messages to the `TMsg` model (`toTranscript`); and the real `Tool` flows at runtime
-  while proofs reason about `Tool.name`.
+  messages to the `TMsg` model (`toTranscript`); projects file content/strings to char
+  sequences via `[...s]` / `join("")` for `edit.ts` (the `replace_all` join stays shell);
+  and the real `Tool` flows at runtime while proofs reason about `Tool.name`.
 - **Numbers** are mathematical integers (henri's only numbers are token/turn counts).
 
 ## Proof techniques of note
@@ -102,7 +125,7 @@ monotonicity half in `permissions.dfy`.
 ## Reproduce
 
 ```sh
-npm run verify     # ../LemmaScript/tools/check.sh dafny over LemmaScript-files.txt — 48 VCs
+npm run verify     # ../LemmaScript/tools/check.sh dafny over LemmaScript-files.txt — 60 VCs
 npm run typecheck  # tsc --noEmit
 npm test           # runtime witnesses for the verified properties
 ```

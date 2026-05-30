@@ -1,3 +1,4 @@
 src/permissions.ts
 src/transcript.ts
 src/hooks.ts
+src/edit.ts

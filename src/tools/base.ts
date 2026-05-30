@@ -9,6 +9,7 @@ import { promisify } from "node:util";
 import { glob as fsGlob } from "node:fs/promises";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
+import { editFile, replaceFirst } from "../edit.ts";
 
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
@@ -121,17 +122,21 @@ export const editFileTool: Tool = {
     const oldString = str(args, "old_string");
     const newString = str(args, "new_string");
     const replaceAll = args["replace_all"] === true;
+    if (oldString.length === 0) return `[error: old_string must not be empty]`;
     try {
       const content = await fs.readFile(p, "utf-8");
-      const count = content.split(oldString).length - 1;
-      if (count === 0) return `[error: old_string not found in ${p}]`;
-      if (count > 1 && !replaceAll) {
+      // Verified decision (edit.ts): NotFound / Ambiguous / Replaced.
+      const verdict = editFile([...content], [...oldString], replaceAll);
+      if (verdict.kind === "NotFound") return `[error: old_string not found in ${p}]`;
+      if (verdict.kind === "Ambiguous") {
+        const count = content.split(oldString).length - 1;
         return `[error: old_string appears ${count} times in ${p}. Use replace_all=true or provide more context to make it unique.]`;
       }
+      // Verified single splice (replaceFirst); the all-occurrence join stays shell.
       const newContent = replaceAll
         ? content.split(oldString).join(newString)
-        : content.replace(oldString, newString);
-      const replacements = replaceAll ? count : 1;
+        : replaceFirst([...content], [...oldString], [...newString]).join("");
+      const replacements = replaceAll ? content.split(oldString).length - 1 : 1;
       await fs.writeFile(p, newContent);
       return `[replaced ${replacements} occurrence(s) in ${p}]`;
     } catch (e: unknown) {

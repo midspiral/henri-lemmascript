@@ -12,7 +12,7 @@ tool system, the permission prompt, and the `while`-loop that ties them together
 and focuses on one question: *how do we make the parts that matter provably
 correct?*
 
-The headline: **48 Dafny verification conditions, 0 errors**, across three
+The headline: **60 Dafny verification conditions, 0 errors**, across four
 modules — and the annotated TypeScript is the production code the agent runs.
 
 ## The Big Picture: a verified core inside an unverified shell
@@ -33,6 +33,7 @@ around a small **pure decision core** that the shell calls into:
 │    │    permissions.ts   — the access decision       │    │
 │    │    transcript.ts    — tool-call/result protocol │    │
 │    │    hooks.ts         — config/hook merge         │    │
+│    │    edit.ts          — edit-file splice          │    │
 │    └─────────────────────────────────────────────────┘    │
 └───────────────────────────────────────────────────────────┘
 ```
@@ -305,7 +306,59 @@ build `Set`s outside the fragment — stay shell as thin wrappers over the verif
 `permissions.dfy:P3_GrowAutoSetsMonotone` (growing auto-allow preserves `Allow`).
 Adding a hook can only widen access, provably.
 
-## Part 5: No gap — the proven functions *are* the production code
+## Part 5: Core 4 — the edit splice (`edit.ts`)
+
+The `edit_file` tool finds `old` in a file and replaces it: not-found is an error,
+more than one occurrence without `replace_all` is an error, otherwise it splices. We
+verify the **decision** (which verdict) and the **single-occurrence splice**.
+
+Like the path gate, strings are modeled as sequences — here arrays of single
+characters (`string[]`) — and the shell projects `string <-> string[]` via `[...s]`
+/ `join("")` (a trusted boundary, exactly like Part 2's `path.resolve().split('/')`).
+
+The verdict mirrors the tool branch for branch:
+
+```typescript
+export function editFile(content: string[], old: string[], all: boolean): Edit {
+  //@ requires old.length > 0
+  //@ ensures (\result.kind === "NotFound")  === !occurs(content, old)
+  //@ ensures (\result.kind === "Ambiguous") === (manyOcc(content, old) && !all)
+  //@ ensures (\result.kind === "Replaced")  === (occurs(content, old) && (!manyOcc(content, old) || all))
+  if (!occurs(content, old)) return { kind: "NotFound" };
+  if (manyOcc(content, old) && !all) return { kind: "Ambiguous" };
+  return { kind: "Replaced" };
+}
+```
+
+### What gets proven (E1–E3 + length law)
+
+| # | Property | In one line |
+|---|----------|-------------|
+| **E1** | decision soundness | `NotFound ⟺ ¬occurs`, `Ambiguous ⟺ manyOcc ∧ ¬all`, `Replaced ⟺ occurs ∧ (¬manyOcc ∨ all)` |
+| **E2** | identity | replacing text that does not occur leaves the content unchanged |
+| **E3** | **splice no-op** | `replaceFirst(hay, old, old) == hay` — the splice touches exactly the matched span and preserves everything else |
+| — | length law | a single splice changes the length by exactly `\|repl\| − \|old\|` |
+
+E1 is the auto-discharged `//@ ensures`; E2/E3 rest on `MatchSplit`
+(`matchesAt(hay, old) ⟹ old + dropMatch(hay, old) == hay` — the matched prefix is
+*exactly* `old`).
+
+### The proof trick worth seeing
+
+Non-overlapping `split` semantics tempt a skip-by-`|old|` recursion — but
+`countOcc(hay.slice(old.length), …)` needs `|old| ≤ |hay|` for its slice to be
+in-bounds and its `decreases` to hold, and that fact (`matchesAt ⟹ |old| ≤ |hay|`)
+is **not** automatic and **can't** be added in the additions-only `.dfy`. So every
+recursion instead advances **one character** (`occurs`, `afterFirst`, `replaceFirst`)
+or shrinks `old` (`matchesAt`, `dropMatch`). Termination and in-bounds slicing become
+*structural* — Dafny discharges all 12 VCs with no side-lemmas about lengths.
+
+**Key insight**: choosing the recursion shape so well-formedness is structural is
+most of the work in a string proof — the same lesson the balanced-match study scales
+to 2233 VCs. The live `edit_file` tool calls `editFile` for the verdict and
+`replaceFirst` for the single splice; the `replace_all` join stays shell.
+
+## Part 6: No gap — the proven functions *are* the production code
 
 This is the property that distinguishes henri-lemmascript from "we also wrote a
 formal model." The annotated `.ts` files are imported by the live shell:
@@ -314,13 +367,15 @@ formal model." The annotated `.ts` files are imported by the live shell:
   `decide(...)` on every gated tool call.
 - `agent.ts` imports `{ pairs, wellFormed }` and asserts them every turn, and
   imports `{ mergeTools, mergePerms }` to build its tables.
+- `tools/base.ts` imports `{ editFile, replaceFirst }` and uses them in the
+  `edit_file` tool — the verdict and the single splice run through the verified core.
 
 There is no code generation step that produces a *different* runtime artifact and
 no adapter translating a model into the real types. When you read `decide` in the
 tutorial above, you are reading the function that gates the `bash` tool when you
 run `npm run henri`. The proof is *about the running code*.
 
-## Part 6: The trust boundary — where verification stops (and why that's fine)
+## Part 7: The trust boundary — where verification stops (and why that's fine)
 
 Verifying the core makes the trust boundary smaller and **explicit**, not zero.
 What is deliberately *not* verified:
@@ -332,6 +387,9 @@ What is deliberately *not* verified:
   not modeled.
 - **Transcript projection** (`toTranscript`) from runtime messages to the `TMsg`
   model — trusted to be faithful.
+- **Edit string projection.** The shell projects file content/strings to char
+  sequences via `[...s]` / `join("")`; the `replace_all` join (`split/join`) stays
+  shell, while the verdict and the single splice are verified.
 - **Tool `args` and result `content`** — opaque strings to the proofs.
 - **Numbers** — mathematical integers (henri's only numbers are token/turn
   counts); no overflow modeling.
@@ -344,7 +402,7 @@ keep. Verification moved the trust from "did we implement the policy right" (now
 proven) to "is the policy itself right, and is the projection faithful" (still
 trusted, but small and named).
 
-## Part 7: Reproduce it
+## Part 8: Reproduce it
 
 Prerequisites: a sibling [`../LemmaScript`](../LemmaScript) checkout (built), and
 Dafny ≥ 4.x. See [`../LemmaScript/GETTING_STARTED.md`](../LemmaScript/GETTING_STARTED.md)
@@ -352,9 +410,9 @@ for setup.
 
 ```sh
 npm run verify     # ../LemmaScript/tools/check.sh dafny — regenerates, enforces
-                   # additions-only, runs Dafny over all three: 48 VCs, 0 errors
+                   # additions-only, runs Dafny over all four: 60 VCs, 0 errors
 npm run typecheck  # tsc --noEmit — the shell + core typecheck as one program
-npm test           # runtime witnesses for P1–P4 / T1–T2 / H1–H3
+npm test           # runtime witnesses for P1–P4 / T1–T2 / H1–H3 / E1–E3
 npm run henri      # run the actual agent (Anthropic or AWS Bedrock)
 ```
 
@@ -366,14 +424,14 @@ npm run gen   -- src/permissions.ts   # (re)generate permissions.dfy.gen
 npm run check -- src/permissions.ts   # additions-only check + Dafny verify
 ```
 
-## Part 8: Extend it — verify your own function
+## Part 9: Extend it — verify your own function
 
 The original tutorial's Part 6 was "Adding a new tool." The verification analogue:
 
 1. **Pick a small, pure function.** A predicate, a parser, a reducer with no I/O.
-   The `edit_file` faithful-splice (does a replacement preserve everything
-   outside the match?) is the documented stretch goal — a string algorithm in the
-   spirit of [balanced-match](https://github.com/midspiral/balanced-match-lemmascript).
+   `edit.ts` (Part 5) is a worked example — a string algorithm in the spirit of
+   [balanced-match](https://github.com/midspiral/balanced-match-lemmascript); read it
+   as a template before starting your own.
 2. **Move it into a `//@ backend dafny` file** (or add `//@ verify` to it in an
    existing one) and write its contract with `//@ requires` / `//@ ensures`.
 3. **`npm run gen -- src/yourfile.ts`**, then complete the proof in
@@ -390,9 +448,10 @@ A few exercises, in increasing difficulty:
 
 - **A new permission property.** State and prove that a `bash` grant for one exact
   command never authorizes a *different* command.
-- **`edit_file` splice (stretch).** Prove the uniqueness contract: `count == 0`
-  errors, `count > 1 && !replaceAll` errors, else the splice replaces exactly the
-  matched span and preserves the rest.
+- **`replace_all` faithfulness (stretch).** The all-occurrence join is still shell
+  (Part 5). Verify a `replaceAll` over char sequences — the catch is termination: a
+  skip-by-`|old|` recursion needs `matchesAt ⟹ |old| ≤ |hay|`, so you must either
+  prove that lemma or restructure around `edit.ts`'s one-char-at-a-time shape.
 - **Tighten the projection.** `toTranscript` is trusted today. Specify what
   "faithful projection" means and verify the part of it that lives in the
   fragment, shrinking the trust boundary.
@@ -400,7 +459,7 @@ A few exercises, in increasing difficulty:
 ## Where to go next
 
 - [`README_LemmaScript.md`](README_LemmaScript.md) — the full property/lemma
-  reference (what each of the 48 VCs proves).
+  reference (what each of the 60 VCs proves).
 - [`DESIGN.md`](DESIGN.md) — why the cores are shaped this way; the phased plan;
   the fragment-boundary tactics.
 - [`../LemmaScript/SPEC.md`](../LemmaScript/SPEC.md) — the annotation language.

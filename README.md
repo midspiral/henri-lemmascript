@@ -24,8 +24,14 @@ imported directly by the live agent. See [DESIGN.md](DESIGN.md).
   additivity (H4, composed with permissions' P3). Verified **in place** — the real
   `mergeTools(Tool[])` is the proof target via `//@ declare-type Tool { name: string }`,
   no parallel model. Proofs in [`src/hooks.dfy`](src/hooks.dfy).
+- **Phase 4 — `edit.ts` verified: done.** `lsc check` green (12 Dafny VCs, 0 errors):
+  the `edit_file` decision (E1: not-found / ambiguous / replaced ⟺ occurrence count),
+  no-match identity (E2), splice no-op `replaceFirst(hay, old, old) == hay` (E3, via
+  `MatchSplit`), and a length law. The live `edit_file` tool calls the verified
+  `editFile`/`replaceFirst`; the `replace_all` join stays shell. Proofs in
+  [`src/edit.dfy`](src/edit.dfy).
 
-**All three verified cores are proven (48 Dafny VCs, 0 errors).** The runnable agent
+**All four verified cores are proven (60 Dafny VCs, 0 errors).** The runnable agent
 imports them directly.
 
 ## Run
@@ -54,7 +60,7 @@ henri --provider bedrock   # then run from anywhere
 ```sh
 npm run typecheck   # tsc --noEmit
 npm test            # test/smoke.ts — runtime witnesses for the verified properties
-npm run verify      # regenerate + verify all Dafny proofs (LemmaScript-files.txt) — 48 VCs
+npm run verify      # regenerate + verify all Dafny proofs (LemmaScript-files.txt) — 60 VCs
 ```
 
 `npm run verify` runs `../LemmaScript/tools/check.sh dafny` over the modules listed in

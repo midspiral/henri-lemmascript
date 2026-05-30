@@ -50,7 +50,7 @@ and builds its tool/permission tables through the merge functions.
 |----------|--------|
 | Deliverable | **Runnable agent + verified core.** A working TS CLI whose live shell imports the verified modules (collab-todo / talktimer model). |
 | Backend | **Dafny only.** Primary backend, easiest for LLM-assisted proving, matches nearly all recent case studies. |
-| Verified scope | **Permissions + Transcript well-formedness + Hook/config merge.** (`edit_file` faithful-splice is a documented stretch goal, §6.) |
+| Verified scope | **Permissions + Transcript well-formedness + Hook/config merge + edit-file splice.** |
 
 ---
 
@@ -183,6 +183,38 @@ export function gather(base: string[], parts: string[][]): string[] // verified:
   access. Both halves are formal: `hooks.dfy:H4_GatherGrows` (gather grows the base)
   and `permissions.dfy:P3_GrowAutoSetsMonotone` (growing auto-allow preserves Allow).
 
+### 3.4 `edit.ts` — the edit-file splice (string algorithm)
+
+Henri's `edit_file` finds `old` in a file and replaces it: not-found errors,
+more-than-one-without-`replace_all` errors, otherwise splice. We verify the
+**decision** and the **single-occurrence splice**. Strings are char sequences
+(`string[]`), the shell projecting `string <-> string[]` via `[...s]` / `join("")`
+(trusted, like the §3.1 path projection); the `replace_all` join stays shell.
+
+```ts
+export function editFile(content: string[], old: string[], all: boolean): Edit
+//                       NotFound | Ambiguous | Replaced — the verdict (E1)
+export function replaceFirst(hay: string[], old: string[], repl: string[]): string[]
+//                       the single splice (E2/E3 faithfulness)
+```
+
+**Properties to prove:**
+
+- **E1 — Decision soundness.** The verdict matches the occurrence count branch for
+  branch: `NotFound ⟺ ¬occurs`, `Ambiguous ⟺ manyOcc ∧ ¬all`, `Replaced ⟺ occurs ∧
+  (¬manyOcc ∨ all)`. Auto-discharged from `editFile`'s definition.
+- **E2 — Identity.** Replacing text that does not occur leaves the content unchanged.
+- **E3 — Splice no-op** *(faithfulness).* `replaceFirst(hay, old, old) == hay` — the
+  splice touches exactly the matched span and preserves everything else. Rests on
+  `MatchSplit`: `matchesAt(hay, old) ⟹ old + dropMatch(hay, old) == hay` (the matched
+  prefix is *exactly* `old`). Plus a length law (`|repl| − |old|`).
+
+**Design note.** Non-overlapping `split` semantics tempt a skip-by-`|old|`
+recursion, whose termination/in-bounds needs `matchesAt ⟹ |old| ≤ |hay|` — not
+automatic, and unfixable in the additions-only `.dfy`. Instead every recursion
+advances **one character** (`occurs`, `afterFirst`, `replaceFirst`) or shrinks
+`old` (`matchesAt`, `dropMatch`), so well-formedness and termination are structural.
+
 ---
 
 ## 4. The trust boundary (what we do NOT verify)
@@ -212,6 +244,7 @@ henri-lemmascript/
 │   ├── permissions.ts      # VERIFIED core: decide / normalize / isWithin  (Phase 1)
 │   ├── transcript.ts       # VERIFIED core: wellFormed / pairs / makeResults (Phase 2)
 │   ├── hooks.ts            # VERIFIED core: mergeTools / gather (declare-type Tool) (Phase 3)
+│   ├── edit.ts             # VERIFIED core: editFile decision + replaceFirst splice (Phase 4)
 │   ├── messages.ts         # runtime conversation types (Message, ToolCall, ToolResult)
 │   ├── permission-gate.ts  # SHELL: stateful wrapper — prompts, records grants, calls decide()
 │   ├── agent.ts            # SHELL: stream loop; gates tools, threads results, asserts wellFormed
@@ -276,9 +309,16 @@ changes (selected by `--provider`).
   (+ commutativity corollary), H4 additivity composed with
   `permissions.dfy:P3_GrowAutoSetsMonotone`. `mergePerms`/`mergeSystemPrompt` stay
   shell (selective `//@ verify`) as wrappers over the verified `gather`.
-- **Phase 4 — Stretch: `edit_file` faithful-splice.** The uniqueness logic
-  (`count==0` error, `count>1 && !replaceAll` error, else splice) as a string
-  algorithm, in the spirit of balanced-match. Out of initial scope.
+- **Phase 4 — `edit.ts`** (E1–E3 + length law). ✅ *Done.* `lsc check` green: edit
+  12 verified, 0 errors. E1 decision soundness is the auto-discharged
+  `editFile_ensures` (verdict ⟺ occurrence count: `count==0` → NotFound, `count>1 &&
+  !replaceAll` → Ambiguous, else Replaced); E2 no-match identity; E3 splice no-op
+  (`replaceFirst(hay, old, old) == hay`) via `MatchSplit` (the matched prefix is
+  exactly `old`); plus a length law. Strings modeled as char sequences with every
+  recursion advancing one char (or shrinking `old`), so termination and in-bounds
+  slicing are structural — no overlap/length side-lemmas. The live `edit_file` tool
+  calls `editFile` for the verdict and `replaceFirst` for the single splice; the
+  `replace_all` join stays shell.
 
 Each phase: `lsc gen --backend=dafny src/<mod>.ts` → complete proofs in `<mod>.dfy` →
 `lsc check`. The `.ts` remains the production code the shell runs.
