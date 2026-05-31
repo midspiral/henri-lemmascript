@@ -21,11 +21,15 @@ export const MODEL_DEFAULTS: Record<string, string> = {
   anthropic: DEFAULT_ANTHROPIC_MODEL,
 };
 
+// /compact default: how many recent messages to keep when summarizing history.
+export const DEFAULT_COMPACT_KEEP = 6;
+
 export interface ProviderConfig {
   provider: string;
   model: string;
   region?: string;
   maxTurns?: number;
+  compactKeep: number;
 }
 
 export interface ConfigArgs {
@@ -33,6 +37,7 @@ export interface ConfigArgs {
   model?: string;
   region?: string;
   maxTurns?: number;
+  compactKeep?: number;
 }
 
 export function getProviderConfig(args: ConfigArgs): ProviderConfig {
@@ -50,5 +55,14 @@ export function getProviderConfig(args: ConfigArgs): ProviderConfig {
     if (env) maxTurns = parseInt(env, 10);
   }
 
-  return { provider, model, region, maxTurns };
+  let compactKeep = args.compactKeep;
+  if (compactKeep === undefined) {
+    const env = envVar("COMPACT_KEEP");
+    if (env) compactKeep = parseInt(env, 10);
+  }
+  if (compactKeep === undefined || Number.isNaN(compactKeep) || compactKeep < 0) {
+    compactKeep = DEFAULT_COMPACT_KEEP;
+  }
+
+  return { provider, model, region, maxTurns, compactKeep };
 }

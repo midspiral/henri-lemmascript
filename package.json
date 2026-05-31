@@ -14,6 +14,7 @@
     "test": "tsx test/smoke.ts",
     "typecheck": "tsc --noEmit",
     "gen": "node ../LemmaScript/tools/dist/lsc.js gen --backend=dafny",
+    "regen": "node ../LemmaScript/tools/dist/lsc.js regen --backend=dafny",
     "check": "node ../LemmaScript/tools/dist/lsc.js check --backend=dafny",
     "verify": "../LemmaScript/tools/check.sh dafny"
   },

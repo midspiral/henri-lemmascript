@@ -19,12 +19,16 @@ Options:
   -m, --model <id>       Model ID (provider-specific default if unset)
       --region <region>  AWS region (Bedrock)
       --max-turns <n>    Stop after n turns (default: unlimited)
+      --compact-keep <n> Recent messages /compact keeps (default: 6)
       --hook <path>      Load a hook module (.ts/.js exporting a Hook); repeatable
   -h, --help             Show this help
 
-Env vars (HENRI_PROVIDER, HENRI_MODEL, HENRI_REGION, HENRI_MAX_TURNS) are used as
-fallbacks. Set ANTHROPIC_API_KEY for --provider anthropic; configure AWS
-credentials for --provider bedrock.`;
+In-session commands: /compact [n] (summarize old history, keep n recent),
+/help.
+
+Env vars (HENRI_PROVIDER, HENRI_MODEL, HENRI_REGION, HENRI_MAX_TURNS,
+HENRI_COMPACT_KEEP) are used as fallbacks. Set ANTHROPIC_API_KEY for --provider
+anthropic; configure AWS credentials for --provider bedrock.`;
 
 async function loadHook(path: string): Promise<Hook> {
   const mod = await import(pathToFileURL(resolve(path)).href);
@@ -38,6 +42,7 @@ async function main(): Promise<void> {
       model: { type: "string", short: "m" },
       region: { type: "string" },
       "max-turns": { type: "string" },
+      "compact-keep": { type: "string" },
       hook: { type: "string", multiple: true },
       help: { type: "boolean", short: "h" },
     },
@@ -53,6 +58,7 @@ async function main(): Promise<void> {
     model: values.model,
     region: values.region,
     maxTurns: values["max-turns"] ? parseInt(values["max-turns"], 10) : undefined,
+    compactKeep: values["compact-keep"] ? parseInt(values["compact-keep"], 10) : undefined,
   });
 
   if (!PROVIDERS.includes(config.provider as (typeof PROVIDERS)[number])) {
@@ -75,6 +81,7 @@ async function main(): Promise<void> {
     maxTurns: config.maxTurns,
     providerName: config.provider,
     model: config.model,
+    compactKeep: config.compactKeep,
   });
 }
 

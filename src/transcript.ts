@@ -88,3 +88,41 @@ export function wellFormed(msgs: TMsg[]): boolean {
   if (msgs.length === 0) return true;
   return headOk(msgs[0]) && wfFrom(msgs);
 }
+
+// ── Compaction: the *drop* side of the protocol (mirror of T2) ────────────────
+// /compact replaces an old prefix with a summary and keeps a recent suffix.
+// The retained suffix must never *start* with a tool message — that would orphan
+// a tool_result, the exact hazard T2 rules out on the append side. snapBack picks
+// a safe cut; findCut wraps it with the "keep the last N" heuristic; and the
+// proofs (transcript.dfy) show C1: prepending a `user` summary to the suffix
+// preserves wellFormed. The heuristic (how far back to keep) is shell policy; the
+// *safety* (no orphan) is what's verified — so the shell may pass any `want`.
+
+/**
+ * Walk back from `c` to the nearest index that may begin the retained suffix:
+ * either the end (empty suffix) or a non-tool message. The result is never an
+ * orphan boundary, so the kept suffix never starts with a tool_result.
+ */
+export function snapBack(msgs: TMsg[], c: number): number {
+  //@ requires 0 <= c && c <= msgs.length
+  //@ decreases c
+  //@ ensures 0 <= \result && \result <= msgs.length
+  //@ ensures \result === msgs.length || headOk(msgs[\result])
+  if (c >= msgs.length) return msgs.length;
+  if (headOk(msgs[c])) return c;
+  if (c === 0) return msgs.length;
+  return snapBack(msgs, c - 1);
+}
+
+/**
+ * The compaction cut point: aim to keep the last `keepRecent` messages, then
+ * snap the boundary to a safe (non-tool) start. Returns the index where the
+ * retained suffix begins.
+ */
+export function findCut(msgs: TMsg[], keepRecent: number): number {
+  //@ requires 0 <= keepRecent
+  //@ ensures 0 <= \result && \result <= msgs.length
+  //@ ensures \result === msgs.length || headOk(msgs[\result])
+  const want = msgs.length > keepRecent ? msgs.length - keepRecent : 0;
+  return snapBack(msgs, want);
+}

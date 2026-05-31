@@ -73,3 +73,44 @@ function wellFormed(msgs: seq<TMsg>): bool
 {
   ((|msgs| == 0) || (headOk(msgs[0]) && wfFrom(msgs)))
 }
+
+function snapBack(msgs: seq<TMsg>, c: int): int
+  requires (0 <= c)
+  requires (c <= |msgs|)
+  decreases c
+{
+  if (c >= |msgs|) then
+    |msgs|
+  else
+    if headOk(msgs[c]) then
+      c
+    else
+      if (c == 0) then
+        |msgs|
+      else
+        snapBack(msgs, (c - 1))
+}
+
+lemma snapBack_ensures(msgs: seq<TMsg>, c: int)
+  requires (0 <= c)
+  requires (c <= |msgs|)
+  ensures (0 <= snapBack(msgs, c))
+  ensures (snapBack(msgs, c) <= |msgs|)
+  ensures ((snapBack(msgs, c) == |msgs|) || headOk(msgs[snapBack(msgs, c)]))
+{
+}
+
+function findCut(msgs: seq<TMsg>, keepRecent: int): int
+  requires (0 <= keepRecent)
+{
+  var want := (if (|msgs| > keepRecent) then (|msgs| - keepRecent) else 0);
+  snapBack(msgs, want)
+}
+
+lemma findCut_ensures(msgs: seq<TMsg>, keepRecent: int)
+  requires (0 <= keepRecent)
+  ensures (0 <= findCut(msgs, keepRecent))
+  ensures (findCut(msgs, keepRecent) <= |msgs|)
+  ensures ((findCut(msgs, keepRecent) == |msgs|) || headOk(msgs[findCut(msgs, keepRecent)]))
+{
+}
