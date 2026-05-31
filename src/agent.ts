@@ -7,12 +7,13 @@
 // sending it to the provider.
 
 import * as readline from "node:readline/promises";
+import { emitKeypressEvents } from "node:readline";
 import { assistantMessage, toolResultMessage, userMessage, type Message, type ToolCall, type ToolResult } from "./messages.ts";
 import type { Provider } from "./providers/index.ts";
 import { getDefaultTools, type Tool } from "./tools/base.ts";
 import { mergePerms, mergeSystemPrompt, mergeTools, type Hook, type PermConfig } from "./hooks.ts";
 import { DEFAULT_AUTO_ALLOW_CWD, DEFAULT_PATH_BASED, PermissionGate, emptyState } from "./permission-gate.ts";
-import { pairs, wellFormed, type TMsg } from "./transcript.ts";
+import { findCut, pairs, wellFormed, type TMsg } from "./transcript.ts";
 import { Spinner, color, panel, truncate } from "./ui.ts";
 
 function summarize(tools: Tool[], perms: PermConfig): { toolLines: string[]; permLines: string[] } {
@@ -52,6 +53,55 @@ function toTranscript(messages: Message[]): TMsg[] {
   });
 }
 
+// ── /compact summarization (shell; the cut safety is verified, see transcript.ts) ──
+
+const SUMMARY_SYSTEM =
+  "You are a context-summarization assistant. Read the conversation and produce a " +
+  "structured summary. Do NOT continue the conversation or answer any question in it — " +
+  "output only the summary.";
+
+const SUMMARY_PROMPT = `The conversation above is to be summarized into a checkpoint another assistant will resume from. Use this EXACT format:
+
+## Goal
+[What the user is trying to accomplish.]
+
+## Progress
+### Done
+- [Completed work]
+### In Progress
+- [Current work]
+### Blocked
+- [Anything blocking, if any]
+
+## Key Decisions
+- [Decision]: [brief rationale]
+
+## Next Steps
+1. [What should happen next]
+
+## Critical Context
+- [Files, paths, names, errors needed to continue — or "(none)"]
+
+Keep it concise. Preserve exact file paths, function names, and error messages.`;
+
+/** Render the messages being dropped into a plain-text transcript for summarization. */
+function renderForSummary(messages: Message[]): string {
+  const cap = (s: string, n = 2000) => (s.length > n ? `${s.slice(0, n)} …[truncated]` : s);
+  const parts: string[] = [];
+  for (const m of messages) {
+    if (m.role === "user") {
+      parts.push(`User: ${cap(m.content)}`);
+    } else if (m.role === "assistant") {
+      let s = m.content ? `Assistant: ${cap(m.content)}` : "Assistant:";
+      for (const tc of m.toolCalls) s += `\n  → ${tc.name}(${cap(JSON.stringify(tc.args), 300)})`;
+      parts.push(s);
+    } else {
+      for (const tr of m.toolResults) parts.push(`Tool result${tr.isError ? " (error)" : ""}: ${cap(tr.content)}`);
+    }
+  }
+  return parts.join("\n");
+}
+
 export class Agent {
   private tools: Tool[];
   private toolsByName: Map<string, Tool>;
@@ -62,6 +112,8 @@ export class Agent {
   turns = 0;
   inputTokens = 0;
   outputTokens = 0;
+  /** Input tokens reported by the most recent response ≈ current context size. */
+  private lastContextTokens = 0;
 
   constructor(
     private provider: Provider,
@@ -70,14 +122,21 @@ export class Agent {
     private gate: PermissionGate,
     private maxTurns: number | undefined,
     extraSystemPrompt: string | undefined,
+    private compactKeep: number,
+    private autoCompactAt: number,
   ) {
     this.tools = tools;
     this.toolsByName = new Map(tools.map((t) => [t.name, t]));
     this.systemPrompt = buildSystemPrompt(tools, perms, extraSystemPrompt);
   }
 
-  /** Process a user message and stream the response. Returns false if max turns hit. */
-  async chat(userInput: string): Promise<boolean> {
+  /**
+   * Process a user message and stream the response. Returns false if max turns
+   * hit. `signal` (Esc) interrupts: a mid-stream abort keeps the partial answer
+   * as context with no tool calls; a mid-tool abort keeps every call paired with
+   * an `[interrupted]` result. Either way the transcript stays well-formed.
+   */
+  async chat(userInput: string, signal?: AbortSignal): Promise<boolean> {
     this.messages.push(userMessage(userInput));
 
     for (;;) {
@@ -90,29 +149,49 @@ export class Agent {
       let responseText = "";
       let toolCalls: ToolCall[] = [];
 
-      this.spinner.start("Thinking…");
+      this.spinner.start("Thinking… (Esc to interrupt)");
       let printed = false;
-      for await (const event of this.provider.stream(this.messages, this.tools, this.systemPrompt)) {
-        if (event.text) {
-          this.spinner.stop();
-          process.stdout.write(event.text);
-          responseText += event.text;
-          printed = true;
+      let interrupted = false;
+      try {
+        for await (const event of this.provider.stream(this.messages, this.tools, this.systemPrompt, signal)) {
+          if (event.text) {
+            this.spinner.stop();
+            process.stdout.write(event.text);
+            responseText += event.text;
+            printed = true;
+          }
+          if (event.toolUseStarted) this.spinner.stop();
+          if (event.toolCalls) toolCalls = event.toolCalls;
+          if (event.usage) {
+            this.inputTokens += event.usage.inputTokens;
+            this.outputTokens += event.usage.outputTokens;
+            // The input tokens of the latest response ≈ the whole context the
+            // model just read — the signal auto-compaction watches.
+            this.lastContextTokens = event.usage.inputTokens;
+          }
         }
-        if (event.toolUseStarted) this.spinner.stop();
-        if (event.toolCalls) toolCalls = event.toolCalls;
-        if (event.usage) {
-          this.inputTokens += event.usage.inputTokens;
-          this.outputTokens += event.usage.outputTokens;
-        }
+      } catch (e) {
+        // An Esc-abort surfaces as a stream rejection; anything else is real.
+        if (!signal?.aborted) throw e;
+        interrupted = true;
       }
       this.spinner.stop();
       if (printed) process.stdout.write("\n");
 
+      if (interrupted) {
+        // Keep the partial answer as context — or an [interrupted] marker if Esc
+        // landed before any token streamed (an empty assistant message is
+        // rejected by the provider and breaks role alternation). Drop any
+        // incomplete tool calls so no tool_use is left unanswered.
+        this.messages.push(assistantMessage(responseText || "[interrupted]", []));
+        console.log(color.yellow("[interrupted]"));
+        return true;
+      }
+
       this.messages.push(assistantMessage(responseText, toolCalls));
       if (toolCalls.length === 0) break;
 
-      const results = await this.runToolCalls(toolCalls);
+      const results = await this.runToolCalls(toolCalls, signal);
 
       // Verified invariant: results pair 1:1 with calls, ids in order (T1).
       if (!pairs(toolCalls.map((c) => ({ id: c.id, name: c.name })), results.map((r) => ({ toolCallId: r.toolCallId, isError: r.isError })))) {
@@ -124,13 +203,111 @@ export class Agent {
       if (!wellFormed(toTranscript(this.messages))) {
         throw new Error("internal: malformed conversation transcript");
       }
+
+      // Interrupted during the tool batch: every call already has a paired
+      // result above, so the transcript is well-formed — stop and hand back.
+      if (signal?.aborted) {
+        console.log(color.yellow("[interrupted]"));
+        return true;
+      }
     }
+    // Turn finished normally (assistant answered with no tool calls). If the
+    // context has grown past the threshold, compact before the next prompt.
+    await this.maybeAutoCompact(signal);
     return true;
   }
 
-  private async runToolCalls(toolCalls: ToolCall[]): Promise<ToolResult[]> {
+  /** Auto-compact once the latest context size crosses the configured threshold. */
+  private async maybeAutoCompact(signal?: AbortSignal): Promise<void> {
+    if (this.autoCompactAt <= 0 || this.lastContextTokens <= this.autoCompactAt) return;
+    // If nothing can be dropped (findCut keeps everything), don't loop/spend a
+    // summarization call — a single oversized recent message can't be compacted.
+    if (findCut(toTranscript(this.messages), this.compactKeep) === 0) return;
+    console.log(
+      color.dim(`\n[auto-compacting: context ~${this.lastContextTokens} tokens > ${this.autoCompactAt}]`),
+    );
+    await this.compact(undefined, signal);
+  }
+
+  /**
+   * /compact — summarize an old prefix and keep a recent suffix. `keepRecent`
+   * (default: configured) recent messages are retained. The cut index comes from
+   * the verified findCut, so it never starts the kept suffix on an orphan
+   * tool_result; prepending the `user` summary preserves well-formedness
+   * (transcript.ts: C1), re-checked here as a runtime invariant.
+   */
+  async compact(keepRecentArg: number | undefined, signal?: AbortSignal): Promise<void> {
+    const keepRecent = keepRecentArg ?? this.compactKeep;
+    const before = this.messages.length;
+    if (before === 0) {
+      console.log(color.dim("Nothing to compact (no history yet)."));
+      return;
+    }
+
+    // Verified cut: where the retained suffix begins. snapBack_ensures guarantees
+    // this is never a tool message (no orphaned tool_result).
+    const cut = findCut(toTranscript(this.messages), keepRecent);
+    if (cut === 0) {
+      console.log(color.dim(`Nothing to compact (keeping ${keepRecent}; only ${before} message(s)).`));
+      return;
+    }
+    const toSummarize = this.messages.slice(0, cut);
+
+    this.spinner.start("Summarizing… (Esc to interrupt)");
+    let summary = "";
+    try {
+      const prompt = `<conversation>\n${renderForSummary(toSummarize)}\n</conversation>\n\n${SUMMARY_PROMPT}`;
+      for await (const event of this.provider.stream([userMessage(prompt)], [], SUMMARY_SYSTEM, signal)) {
+        if (event.text) summary += event.text;
+        if (event.usage) {
+          this.inputTokens += event.usage.inputTokens;
+          this.outputTokens += event.usage.outputTokens;
+        }
+      }
+    } catch (e) {
+      this.spinner.stop();
+      if (signal?.aborted) {
+        console.log(color.yellow("[compaction interrupted — history unchanged]"));
+        return;
+      }
+      throw e;
+    }
+    this.spinner.stop();
+
+    summary = summary.trim();
+    if (!summary) {
+      console.log(color.yellow("Compaction skipped: the summary came back empty; history unchanged."));
+      return;
+    }
+
+    const summaryMsg = userMessage(`[Earlier conversation compacted to a summary]\n\n${summary}`);
+    const newMessages = [summaryMsg, ...this.messages.slice(cut)];
+
+    // Verified invariant (C1): compaction preserves well-formedness — no orphan
+    // tool_result, no split tool_use/tool_result pair.
+    if (!wellFormed(toTranscript(newMessages))) {
+      throw new Error("internal: compaction produced a malformed transcript");
+    }
+    this.messages = newMessages;
+
+    console.log(
+      panel(
+        `Summarized ${cut} message(s); kept ${before - cut} recent.\n` +
+          `History: ${before} → ${this.messages.length} messages.`,
+        { title: "Compacted", border: "blue" },
+      ),
+    );
+  }
+
+  private async runToolCalls(toolCalls: ToolCall[], signal?: AbortSignal): Promise<ToolResult[]> {
     const results: ToolResult[] = [];
     for (const call of toolCalls) {
+      // Interrupted: don't start this call, but still emit a paired result so the
+      // batch keeps one result per call in order (transcript T1).
+      if (signal?.aborted) {
+        results.push({ toolCallId: call.id, content: "[interrupted by user]", isError: true });
+        continue;
+      }
       const tool = this.toolsByName.get(call.name);
       if (!tool) {
         results.push({ toolCallId: call.id, content: `[error: unknown tool '${call.name}']`, isError: true });
@@ -147,11 +324,13 @@ export class Agent {
         continue;
       }
       this.showToolExecution(tool, call);
-      this.spinner.start("Executing…");
-      const content = await tool.execute(call.args);
+      this.spinner.start("Executing… (Esc to interrupt)");
+      const content = await tool.execute(call.args, signal);
       this.spinner.stop();
       this.showToolResult(content);
-      results.push({ toolCallId: call.id, content, isError: false });
+      // If Esc landed while this tool ran, the tool returned "[interrupted…]";
+      // mark it an error result (still paired) and let the loop wind down.
+      results.push({ toolCallId: call.id, content, isError: signal?.aborted ?? false });
     }
     return results;
   }
@@ -184,6 +363,8 @@ export interface RunOptions {
   maxTurns?: number;
   providerName: string;
   model: string;
+  compactKeep: number;
+  autoCompactAt: number;
 }
 
 export async function runAgent(opts: RunOptions): Promise<void> {
@@ -200,15 +381,33 @@ export async function runAgent(opts: RunOptions): Promise<void> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   const ask = (q: string) => rl.question(q);
 
+  // Esc-to-interrupt. While a turn is running, `activeController` is set; a press
+  // of Esc aborts it (cancelling the provider stream / running tool). readline
+  // keeps a TTY in raw mode for the interface's lifetime, so keypress events flow
+  // between prompts. Only armed on a real terminal — piped input has no Esc.
+  let activeController: AbortController | null = null;
+  const interactive = process.stdin.isTTY === true;
+  if (interactive) {
+    emitKeypressEvents(process.stdin);
+    process.stdin.on("keypress", (_s, key) => {
+      if (key?.name === "escape" && activeController && !activeController.signal.aborted) {
+        activeController.abort();
+      }
+    });
+  }
+
   const state = emptyState(perms.autoAllow, perms.autoAllowCwd, perms.rejectPrompts);
   const gate = new PermissionGate(state, perms.pathBased, ask);
-  const agent = new Agent(opts.provider, tools, perms, gate, opts.maxTurns, extraPrompt);
+  const agent = new Agent(opts.provider, tools, perms, gate, opts.maxTurns, extraPrompt, opts.compactKeep, opts.autoCompactAt);
 
   console.log(
     panel(
       `${color.bold("Henri")} — a hackable agent CLI (verified core via LemmaScript)\n` +
         `Provider: ${opts.providerName} | Model: ${opts.model}\n` +
-        "Type your message and press Enter. Ctrl+C to exit.",
+        `Auto-compact: ${opts.autoCompactAt > 0 ? `on (over ${opts.autoCompactAt} input tokens, keep ${opts.compactKeep})` : "off"}\n` +
+        (interactive
+          ? "Type your message and press Enter. Esc interrupts; Ctrl+C exits.\nCommands: /compact [n], /help."
+          : "Type your message and press Enter. Ctrl+C to exit."),
       { border: "blue" },
     ),
   );
@@ -228,11 +427,47 @@ export async function runAgent(opts: RunOptions): Promise<void> {
       } catch {
         break; // EOF / closed (Ctrl+C, end of piped input)
       }
-      if (!input.trim()) continue;
+      const trimmed = input.trim();
+      if (!trimmed) continue;
+
+      // In-session slash commands.
+      if (trimmed === "/help" || trimmed === "/?") {
+        console.log(
+          "Commands:\n" +
+            `  /compact [n]  Summarize old history, keep the n most recent messages (default ${opts.compactKeep}).\n` +
+            "  /help         Show this help.\n" +
+            (opts.autoCompactAt > 0
+              ? `Auto-compaction: on (when a turn's input tokens exceed ${opts.autoCompactAt}).\n`
+              : "Auto-compaction: off.\n") +
+            "Esc interrupts the agent mid-turn; Ctrl+C exits.",
+        );
+        continue;
+      }
+      if (trimmed === "/compact" || trimmed.startsWith("/compact ")) {
+        const arg = trimmed.slice("/compact".length).trim();
+        const n = arg ? Number.parseInt(arg, 10) : undefined;
+        if (arg !== "" && (n === undefined || Number.isNaN(n) || n < 0)) {
+          console.log(color.red("Usage: /compact [n]   (n = number of recent messages to keep)"));
+          continue;
+        }
+        activeController = new AbortController();
+        try {
+          await agent.compact(n, activeController.signal);
+        } catch (e) {
+          console.error(color.red(`\nError: ${(e as Error).message}`));
+        } finally {
+          activeController = null;
+        }
+        continue;
+      }
+
+      activeController = new AbortController();
       try {
-        await agent.chat(input);
+        await agent.chat(input, activeController.signal);
       } catch (e) {
         console.error(color.red(`\nError: ${(e as Error).message}`));
+      } finally {
+        activeController = null;
       }
     }
   } finally {

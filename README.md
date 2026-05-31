@@ -11,14 +11,18 @@ imported directly by the live agent. See [DESIGN.md](DESIGN.md).
 
 ## Status
 
-- **Phase 0 — runnable skeleton: done.** Multi-provider agent (Anthropic + Bedrock),
+- **Phase 0 — runnable skeleton: done.** Multi-provider agent (Anthropic + Bedrock + Ollama),
   the full tool set, permissions/transcript/hooks written in fragment-friendly TS.
 - **Phase 1 — `permissions.ts` verified: done.** `lsc check` green (14 Dafny VCs,
   0 errors): soundness, path-traversal containment, grant monotonicity, reject-safety.
   Proofs in [`src/permissions.dfy`](src/permissions.dfy).
-- **Phase 2 — `transcript.ts` verified: done.** `lsc check` green (10 Dafny VCs,
+- **Phase 2 — `transcript.ts` verified: done.** `lsc check` green (26 Dafny VCs,
   0 errors): tool-call/result pairing (T1) and the no-orphan invariant preserved by
-  the loop (T2). Proofs in [`src/transcript.dfy`](src/transcript.dfy).
+  the loop on *append* (T2), the drop-side mirror — `/compact`'s cut never orphans a
+  tool_result and the summarized conversation stays well-formed (C1,
+  `findCut`/`snapBack`) — and that auto-compaction is well-behaved: it never grows
+  history (C2) and converges to a no-op once short (C3, the guard correctness).
+  Proofs in [`src/transcript.dfy`](src/transcript.dfy).
 - **Phase 3 — `hooks.ts` verified: done.** `lsc check` green (24 Dafny VCs, 0 errors):
   removal (H1), name-uniqueness/the dedup fix (H2), coverage, order-independence (H3),
   additivity (H4, composed with permissions' P3). Verified **in place** — the real
@@ -31,7 +35,7 @@ imported directly by the live agent. See [DESIGN.md](DESIGN.md).
   `editFile`/`replaceFirst`; the `replace_all` join stays shell. Proofs in
   [`src/edit.dfy`](src/edit.dfy).
 
-**All four verified cores are proven (60 Dafny VCs, 0 errors).** The runnable agent
+**All four verified cores are proven (76 Dafny VCs, 0 errors).** The runnable agent
 imports them directly.
 
 ## Run
@@ -44,6 +48,9 @@ npm run henri -- --provider anthropic
 
 # AWS Bedrock (configure AWS credentials)
 npm run henri -- --provider bedrock --region us-east-1
+
+# Ollama (local; run an Ollama server first)
+npm run henri -- --provider ollama        # default model: qwen3.6:latest
 
 npm run henri -- --help    # all options
 ```
@@ -60,7 +67,7 @@ henri --provider bedrock   # then run from anywhere
 ```sh
 npm run typecheck   # tsc --noEmit
 npm test            # test/smoke.ts — runtime witnesses for the verified properties
-npm run verify      # regenerate + verify all Dafny proofs (LemmaScript-files.txt) — 60 VCs
+npm run verify      # regenerate + verify all Dafny proofs (LemmaScript-files.txt) — 76 VCs
 ```
 
 `npm run verify` runs `../LemmaScript/tools/check.sh dafny` over the modules listed in
@@ -78,7 +85,7 @@ For the exact theorems (every lemma, its statement, and the proof techniques), s
 | Module | Proves | Headline |
 |--------|--------|----------|
 | `src/permissions.ts` | `decide()` soundness, **path-traversal containment**, grant monotonicity, reject-prompt safety | a path escaping cwd is never auto-granted |
-| `src/transcript.ts` | tool-call/result pairing + **no-orphan invariant** of the loop | the conversation sent to the provider is always well-formed |
+| `src/transcript.ts` | tool-call/result pairing + **no-orphan invariant** of the loop (append **and** the `/compact` drop side) | the conversation sent to the provider is always well-formed, including after compaction |
 | `src/hooks.ts` | merge removal, **name-uniqueness (a fix)**, order-independence, additivity | hooks only ever add access |
 | `src/edit.ts` | `editFile()` decision soundness, **single-occurrence splice faithfulness**, length law | an edit touches exactly the matched span, nothing else |
 

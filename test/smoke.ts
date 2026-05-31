@@ -3,7 +3,7 @@
 
 import assert from "node:assert/strict";
 import { decide, isWithin, normalize, type PermState, type Req } from "../src/permissions.ts";
-import { makeResults, pairs, wellFormed, type TMsg } from "../src/transcript.ts";
+import { findCut, makeResults, pairs, wellFormed, type TMsg } from "../src/transcript.ts";
 import { mergePerms, mergeTools, type Hook, type PermConfig } from "../src/hooks.ts";
 import type { Tool } from "../src/tools/base.ts";
 
@@ -77,6 +77,37 @@ const good: TMsg[] = [
 check("T2: well-formed transcript", wellFormed(good));
 check("orphan tool message rejected", !wellFormed([{ role: "user" }, { role: "tool", toolResults: [{ toolCallId: "a", isError: false }] }]));
 check("unanswered tool_use rejected", !wellFormed([{ role: "assistant", toolCalls: calls }]));
+
+// ── transcript: compaction cut safety (findCut / C1 witnesses) ────────────────
+const conv: TMsg[] = [
+  { role: "user" }, // 0
+  { role: "assistant", toolCalls: calls }, // 1
+  { role: "tool", toolResults: makeResults(calls) }, // 2
+  { role: "assistant", toolCalls: [] }, // 3
+  { role: "user" }, // 4
+  { role: "assistant", toolCalls: [] }, // 5
+];
+const compactAt = (msgs: TMsg[], c: number): TMsg[] => [{ role: "user" }, ...msgs.slice(c)];
+const isToolIdx = (msgs: TMsg[], c: number) => c < msgs.length && msgs[c].role === "tool";
+// keepRecent=4 ⇒ want=2 (the tool message); snapBack must skip it back to the assistant-with-calls at 1
+check("findCut snaps back over a tool_use/result pair (no orphan)", findCut(conv, 4) === 1);
+check("findCut: chosen cut is never a tool index", !isToolIdx(conv, findCut(conv, 4)));
+check("C1: compaction at the cut stays well-formed", wellFormed(compactAt(conv, findCut(conv, 4))));
+check("findCut keeps everything when keepRecent ≥ length", findCut(conv, conv.length) === 0);
+check("findCut keeps a recent suffix", findCut(conv, 2) === 4 && wellFormed(compactAt(conv, findCut(conv, 2))));
+// C1 across the board: every keepRecent yields a non-tool cut and a well-formed compaction
+let c1All = true;
+for (let k = 0; k <= conv.length + 1; k++) {
+  const c = findCut(conv, k);
+  if (isToolIdx(conv, c) || !wellFormed(compactAt(conv, c))) c1All = false;
+}
+check("C1: every findCut compaction is well-formed", c1All);
+// C2: compaction never grows history; strictly shrinks when ≥2 messages are dropped
+check("C2: compaction is non-growing (c=1)", compactAt(conv, 1).length <= conv.length);
+check("C2: compaction strictly shrinks (c≥2)", compactAt(conv, 2).length < conv.length);
+// C3: findCut keeps everything (cut 0 ⇒ auto-compact is a no-op) once short enough
+const shortConv: TMsg[] = [{ role: "user" }, { role: "assistant", toolCalls: [] }];
+check("C3: compaction converges (no-op when |msgs| ≤ keepRecent)", findCut(shortConv, 6) === 0 && findCut(conv, conv.length + 5) === 0);
 
 // ── hooks: merge (H1 witness) ─────────────────────────────────────────────────
 const tool = (name: string): Tool => ({ name, description: "", parameters: { type: "object", properties: {} }, requiresPermission: false, execute: async () => "" });

@@ -45,7 +45,7 @@ export class AnthropicProvider implements Provider {
     }));
   }
 
-  async *stream(messages: Message[], tools: Tool[], system: string): AsyncIterable<StreamEvent> {
+  async *stream(messages: Message[], tools: Tool[], system: string, signal?: AbortSignal): AsyncIterable<StreamEvent> {
     const request: Anthropic.MessageStreamParams = {
       model: this.modelId,
       max_tokens: 8192,
@@ -59,7 +59,9 @@ export class AnthropicProvider implements Provider {
     let curName: string | null = null;
     let curInput = "";
 
-    const stream = this.client.messages.stream(request);
+    // On Esc, `signal` aborts: the iteration below rejects and the agent loop
+    // treats it as an interrupt, keeping whatever text streamed so far.
+    const stream = this.client.messages.stream(request, { signal });
 
     for await (const event of stream) {
       if (event.type === "content_block_start") {

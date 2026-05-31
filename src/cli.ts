@@ -18,13 +18,23 @@ Options:
   -p, --provider <name>  LLM provider: ${PROVIDERS.join(" | ")} (default: ${DEFAULT_PROVIDER})
   -m, --model <id>       Model ID (provider-specific default if unset)
       --region <region>  AWS region (Bedrock)
+      --host <url>       Ollama host URL (default: http://localhost:11434)
       --max-turns <n>    Stop after n turns (default: unlimited)
+      --compact-keep <n> Recent messages /compact keeps (default: 6)
+      --auto-compact-at <n>  Auto-compact when a turn's input tokens exceed n
+                             (default: 150000; use --no-auto-compact to disable)
+      --no-auto-compact  Disable automatic compaction (manual /compact only)
       --hook <path>      Load a hook module (.ts/.js exporting a Hook); repeatable
   -h, --help             Show this help
 
-Env vars (HENRI_PROVIDER, HENRI_MODEL, HENRI_REGION, HENRI_MAX_TURNS) are used as
-fallbacks. Set ANTHROPIC_API_KEY for --provider anthropic; configure AWS
-credentials for --provider bedrock.`;
+In-session commands: /compact [n] (summarize old history, keep n recent),
+/help. Compaction also runs automatically once context grows past
+--auto-compact-at tokens.
+
+Env vars (HENRI_PROVIDER, HENRI_MODEL, HENRI_REGION, HENRI_HOST, HENRI_MAX_TURNS,
+HENRI_COMPACT_KEEP, HENRI_AUTO_COMPACT_AT) are used as fallbacks. Set
+ANTHROPIC_API_KEY for --provider anthropic; configure AWS credentials for
+--provider bedrock; run a local Ollama server for --provider ollama.`;
 
 async function loadHook(path: string): Promise<Hook> {
   const mod = await import(pathToFileURL(resolve(path)).href);
@@ -37,7 +47,11 @@ async function main(): Promise<void> {
       provider: { type: "string", short: "p" },
       model: { type: "string", short: "m" },
       region: { type: "string" },
+      host: { type: "string" },
       "max-turns": { type: "string" },
+      "compact-keep": { type: "string" },
+      "auto-compact-at": { type: "string" },
+      "no-auto-compact": { type: "boolean" },
       hook: { type: "string", multiple: true },
       help: { type: "boolean", short: "h" },
     },
@@ -52,7 +66,11 @@ async function main(): Promise<void> {
     provider: values.provider,
     model: values.model,
     region: values.region,
+    host: values.host,
     maxTurns: values["max-turns"] ? parseInt(values["max-turns"], 10) : undefined,
+    compactKeep: values["compact-keep"] ? parseInt(values["compact-keep"], 10) : undefined,
+    autoCompactAt: values["auto-compact-at"] ? parseInt(values["auto-compact-at"], 10) : undefined,
+    noAutoCompact: values["no-auto-compact"],
   });
 
   if (!PROVIDERS.includes(config.provider as (typeof PROVIDERS)[number])) {
@@ -67,7 +85,7 @@ async function main(): Promise<void> {
   const hooks: Hook[] = [];
   for (const path of values.hook ?? []) hooks.push(await loadHook(path));
 
-  const provider = createProvider(config.provider, config.model, config.region);
+  const provider = createProvider(config.provider, config.model, config.region, config.host);
 
   await runAgent({
     provider,
@@ -75,6 +93,8 @@ async function main(): Promise<void> {
     maxTurns: config.maxTurns,
     providerName: config.provider,
     model: config.model,
+    compactKeep: config.compactKeep,
+    autoCompactAt: config.autoCompactAt,
   });
 }
 

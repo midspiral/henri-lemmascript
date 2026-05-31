@@ -12,7 +12,7 @@ tool system, the permission prompt, and the `while`-loop that ties them together
 and focuses on one question: *how do we make the parts that matter provably
 correct?*
 
-The headline: **60 Dafny verification conditions, 0 errors**, across four
+The headline: **76 Dafny verification conditions, 0 errors**, across four
 modules — and the annotated TypeScript is the production code the agent runs.
 
 Two invariants are the reason this matters, and everything below builds toward
@@ -240,9 +240,19 @@ export function makeResults(calls: TToolCall[]): TToolResult[] {
 |---|----------|-------------|
 | **T1** | pairing | `makeResults(calls)` has one result per call, ids in order |
 | **T2** | **no orphan, preserved** | appending `[assistant(calls), tool(makeResults(calls))]` to a well-formed transcript keeps it well-formed |
+| **C1** | **compaction (the drop side)** | `findCut` never cuts onto a `tool` message, so `/compact` (drop a prefix, prepend a `user` summary) provably can't *create* a malformed transcript either |
+| **C2/C3** | **auto-compaction terminates** | compaction never *grows* the conversation (C2), and `findCut` returns 0 once history fits in `keepRecent` (C3) — so the auto-compact loop converges to a no-op fixpoint instead of looping forever |
 
 T2 is the one that matters: it's not "we checked the transcript afterward," it's
-"the loop's append step provably can't *create* a malformed transcript."
+"the loop's append step provably can't *create* a malformed transcript." C1 is its
+mirror image for `/compact`: pi-lemmascript verified that summarizing history never
+splits a tool_use/tool_result run (`findCutPoint`/`findValidCutPoints`); here the
+same guarantee falls out of the *same* `wellFormed` predicate — `findCut` snaps the
+cut to a non-tool boundary (`snapBack_ensures`) and `C1_CompactPreservesWellFormed`
+proves the summarized conversation stays well-formed. So the drop side reuses the
+append side's invariant rather than re-deriving it. C2/C3 then close the loop on
+*automatic* compaction: it can't blow up history and it provably stops (the
+`findCut == 0` guard fires once the conversation is short enough).
 
 ### How the live agent uses it
 
@@ -421,7 +431,7 @@ for setup.
 
 ```sh
 npm run verify     # ../LemmaScript/tools/check.sh dafny — regenerates, enforces
-                   # additions-only, runs Dafny over all four: 60 VCs, 0 errors
+                   # additions-only, runs Dafny over all four: 76 VCs, 0 errors
 npm run typecheck  # tsc --noEmit — the shell + core typecheck as one program
 npm test           # runtime witnesses for P1–P4 / T1–T2 / H1–H3 / E1–E3
 npm run henri      # run the actual agent (Anthropic or AWS Bedrock)
@@ -470,7 +480,7 @@ A few exercises, in increasing difficulty:
 ## Where to go next
 
 - [`README_LemmaScript.md`](README_LemmaScript.md) — the full property/lemma
-  reference (what each of the 60 VCs proves).
+  reference (what each of the 76 VCs proves).
 - [`DESIGN.md`](DESIGN.md) — why the cores are shaped this way; the phased plan;
   the fragment-boundary tactics.
 - [`../LemmaScript/SPEC.md`](../LemmaScript/SPEC.md) — the annotation language.

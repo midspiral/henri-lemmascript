@@ -55,7 +55,7 @@ export class BedrockProvider implements Provider {
     }));
   }
 
-  async *stream(messages: Message[], tools: Tool[], system: string): AsyncIterable<StreamEvent> {
+  async *stream(messages: Message[], tools: Tool[], system: string, signal?: AbortSignal): AsyncIterable<StreamEvent> {
     const command = new ConverseStreamCommand({
       modelId: this.modelId,
       messages: messages.map((m) => this.messageToBedrock(m)),
@@ -63,7 +63,9 @@ export class BedrockProvider implements Provider {
       toolConfig: tools.length ? { tools: this.toolsToBedrock(tools) } : undefined,
     });
 
-    const response = await this.client.send(command);
+    // On Esc, `abortSignal` cancels the request mid-stream; the agent loop
+    // turns the resulting rejection into a clean interrupt.
+    const response = await this.client.send(command, { abortSignal: signal });
 
     const toolCalls: ToolCall[] = [];
     let curId: string | undefined;
