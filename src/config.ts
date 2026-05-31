@@ -16,9 +16,14 @@ export const DEFAULT_BEDROCK_REGION = "us-east-1";
 // Direct Anthropic API defaults
 export const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-5-20250929";
 
+// Ollama (local) defaults
+export const DEFAULT_OLLAMA_MODEL = "qwen3.6:latest";
+export const DEFAULT_OLLAMA_HOST = "http://localhost:11434";
+
 export const MODEL_DEFAULTS: Record<string, string> = {
   bedrock: DEFAULT_BEDROCK_MODEL,
   anthropic: DEFAULT_ANTHROPIC_MODEL,
+  ollama: DEFAULT_OLLAMA_MODEL,
 };
 
 // /compact default: how many recent messages to keep when summarizing history.
@@ -32,6 +37,7 @@ export interface ProviderConfig {
   provider: string;
   model: string;
   region?: string;
+  host?: string;
   maxTurns?: number;
   compactKeep: number;
   /** Input-token threshold for automatic compaction; 0 = disabled. */
@@ -42,6 +48,7 @@ export interface ConfigArgs {
   provider?: string;
   model?: string;
   region?: string;
+  host?: string;
   maxTurns?: number;
   compactKeep?: number;
   autoCompactAt?: number;
@@ -51,6 +58,9 @@ export interface ConfigArgs {
 export function getProviderConfig(args: ConfigArgs): ProviderConfig {
   const provider = args.provider ?? envVar("PROVIDER") ?? DEFAULT_PROVIDER;
   const region = args.region ?? envVar("REGION");
+
+  let host = args.host ?? envVar("HOST");
+  if (host === undefined && provider === "ollama") host = DEFAULT_OLLAMA_HOST;
 
   let model = args.model ?? envVar("MODEL");
   if (model === undefined) {
@@ -86,5 +96,5 @@ export function getProviderConfig(args: ConfigArgs): ProviderConfig {
     }
   }
 
-  return { provider, model, region, maxTurns, compactKeep, autoCompactAt };
+  return { provider, model, region, host, maxTurns, compactKeep, autoCompactAt };
 }

@@ -11,7 +11,7 @@ imported directly by the live agent. See [DESIGN.md](DESIGN.md).
 
 ## Status
 
-- **Phase 0 — runnable skeleton: done.** Multi-provider agent (Anthropic + Bedrock),
+- **Phase 0 — runnable skeleton: done.** Multi-provider agent (Anthropic + Bedrock + Ollama),
   the full tool set, permissions/transcript/hooks written in fragment-friendly TS.
 - **Phase 1 — `permissions.ts` verified: done.** `lsc check` green (14 Dafny VCs,
   0 errors): soundness, path-traversal containment, grant monotonicity, reject-safety.
@@ -48,6 +48,9 @@ npm run henri -- --provider anthropic
 
 # AWS Bedrock (configure AWS credentials)
 npm run henri -- --provider bedrock --region us-east-1
+
+# Ollama (local; run an Ollama server first)
+npm run henri -- --provider ollama        # default model: qwen3.6:latest
 
 npm run henri -- --help    # all options
 ```
