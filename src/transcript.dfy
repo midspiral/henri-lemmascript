@@ -231,3 +231,42 @@ lemma C1_CompactPreservesWellFormed(msgs: seq<TMsg>, c: int)
     assert okAdjacent(user, suffix[0]);
   }
 }
+
+// ── C2 / C3: auto-compaction is well-behaved (terminates) ────────────────────
+// C1 says compaction stays well-formed; C2/C3 say the *process* converges. The
+// agent's maybeAutoCompact runs compact() when context is large and skips when
+// findCut == 0; these prove that loop can't grow history and must stop.
+
+// C2: compaction never grows the conversation. The compacted transcript is
+// [user summary] + msgs[c..], of length 1 + (|msgs| - c): for any cut that drops
+// the oldest message (c >= 1) it is no longer than the input, and for c >= 2 it
+// is strictly shorter — so repeatedly compacting can't blow up the history.
+lemma C2_CompactNonGrowing(msgs: seq<TMsg>, c: int)
+  requires 1 <= c <= |msgs|
+  ensures |[user] + msgs[c..]| <= |msgs|
+{
+  assert |[user] + msgs[c..]| == 1 + (|msgs| - c);
+}
+
+lemma C2_CompactShrinks(msgs: seq<TMsg>, c: int)
+  requires 2 <= c <= |msgs|
+  ensures |[user] + msgs[c..]| < |msgs|
+{
+  assert |[user] + msgs[c..]| == 1 + (|msgs| - c);
+}
+
+// C3: compaction becomes a no-op once the conversation is short enough. When at
+// most keepRecent messages remain, findCut keeps everything (returns 0) — so the
+// auto-compaction guard (skip when findCut == 0) provably fires, and the process
+// converges to a fixpoint rather than looping forever.
+lemma C3_CompactConverges(msgs: seq<TMsg>, keepRecent: int)
+  requires 0 <= keepRecent
+  requires wellFormed(msgs)
+  requires |msgs| <= keepRecent
+  ensures findCut(msgs, keepRecent) == 0
+{
+  // want == 0 because |msgs| <= keepRecent, so findCut == snapBack(msgs, 0).
+  if |msgs| > 0 {
+    assert headOk(msgs[0]); // from wellFormed(msgs)
+  }
+}

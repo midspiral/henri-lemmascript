@@ -7,7 +7,7 @@ against Anthropic and AWS Bedrock end to end. The proven functions are not a
 side model: `decide()` gates every tool call, `pairs`/`wellFormed` are checked
 on every turn of the real loop, and `editFile`/`replaceFirst` back the edit tool.
 
-**70 Dafny verification conditions, 0 errors**, across four modules. Reproduce with
+**76 Dafny verification conditions, 0 errors**, across four modules. Reproduce with
 `npm run verify` (regenerates each `.dfy.gen` merge base, enforces additions-only
 against the proof `.dfy`, runs Dafny); CI in
 [`.github/workflows/lemmascript.yml`](.github/workflows/lemmascript.yml).
@@ -38,7 +38,7 @@ is trusted only to `path.resolve(p).split('/')`.
 This is the hono/rallly directory-traversal CVE flavor, proven on an *agent's*
 permission gate.
 
-## 2. `transcript.ts` — the tool-call/result protocol (20 VCs)
+## 2. `transcript.ts` — the tool-call/result protocol (26 VCs)
 
 The conversation the agent sends to a provider must satisfy the Anthropic API
 rule: every `tool_use` is answered by exactly one `tool_result` with the matching
@@ -52,12 +52,15 @@ id, in order, and a tool message only follows an assistant-with-calls. This is t
 | **T2 no-orphan** *(headline)* | `T2_AppendPreservesWellFormed` | `wellFormed(msgs) ∧ \|calls\| > 0 ⟹ wellFormed(msgs + [assistant(calls), tool(makeResults(calls))])`. Appending a tool-result block keeps the transcript well-formed: no orphan tool_result is ever sent, and no tool_use is left unanswered. |
 | **C1 compaction cut** *(the drop side)* | `snapBack_ensures`, `findCut_ensures` | `findCut(msgs, keep)` returns an index that is either `\|msgs\|` or a non-tool message (`headOk`) — the kept suffix never *starts* on an orphan tool_result. |
 | **C1 compaction well-formed** | `C1_CompactPreservesWellFormed` | `wellFormed(msgs) ∧ (c == \|msgs\| ∨ headOk(msgs[c])) ⟹ wellFormed([user] + msgs[c..])`. `/compact` (drop a prefix at a safe cut, prepend a `user` summary) keeps the transcript well-formed — the exact mirror of T2 on the *drop* side. |
+| **C2 non-growing** | `C2_CompactNonGrowing`, `C2_CompactShrinks` | `1 ≤ c ⟹ \|[user] + msgs[c..]\| ≤ \|msgs\|` (and `2 ≤ c ⟹ <`). Compaction never grows the conversation — repeated compaction can't blow up history. |
+| **C3 convergence** *(termination)* | `C3_CompactConverges` | `wellFormed(msgs) ∧ \|msgs\| ≤ keep ⟹ findCut(msgs, keep) == 0`. Once at most `keep` messages remain, the cut keeps everything — so the auto-compaction guard (`skip when findCut == 0`) provably fires and the loop converges to a fixpoint. |
 
 T1/T2 are proven by induction over the recursive adjacency predicate
 (`WfFromAppendPair`, `WfFromImpliesLastOk`); C1 by `WfFromSuffix` (a suffix of a
-consistent sequence is consistent). The live `agent.ts` calls `pairs`/`wellFormed`
-as a runtime assertion every turn, `findCut`/`wellFormed` on every `/compact` — it
-throws before sending a malformed transcript.
+consistent sequence is consistent); C2/C3 are length/`findCut` arithmetic that pin
+down auto-compaction termination. The live `agent.ts` calls `pairs`/`wellFormed` as
+a runtime assertion every turn, `findCut`/`wellFormed` on every `/compact` (manual
+or auto) — it throws before sending a malformed transcript.
 
 ## 3. `hooks.ts` — config / hook merge (24 VCs)
 
@@ -129,7 +132,7 @@ and `replaceFirst` for the single splice; the all-occurrence join stays shell.
 ## Reproduce
 
 ```sh
-npm run verify     # ../LemmaScript/tools/check.sh dafny over LemmaScript-files.txt — 70 VCs
+npm run verify     # ../LemmaScript/tools/check.sh dafny over LemmaScript-files.txt — 76 VCs
 npm run typecheck  # tsc --noEmit
 npm test           # runtime witnesses for the verified properties
 ```

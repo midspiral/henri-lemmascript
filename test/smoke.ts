@@ -102,6 +102,12 @@ for (let k = 0; k <= conv.length + 1; k++) {
   if (isToolIdx(conv, c) || !wellFormed(compactAt(conv, c))) c1All = false;
 }
 check("C1: every findCut compaction is well-formed", c1All);
+// C2: compaction never grows history; strictly shrinks when ≥2 messages are dropped
+check("C2: compaction is non-growing (c=1)", compactAt(conv, 1).length <= conv.length);
+check("C2: compaction strictly shrinks (c≥2)", compactAt(conv, 2).length < conv.length);
+// C3: findCut keeps everything (cut 0 ⇒ auto-compact is a no-op) once short enough
+const shortConv: TMsg[] = [{ role: "user" }, { role: "assistant", toolCalls: [] }];
+check("C3: compaction converges (no-op when |msgs| ≤ keepRecent)", findCut(shortConv, 6) === 0 && findCut(conv, conv.length + 5) === 0);
 
 // ── hooks: merge (H1 witness) ─────────────────────────────────────────────────
 const tool = (name: string): Tool => ({ name, description: "", parameters: { type: "object", properties: {} }, requiresPermission: false, execute: async () => "" });
