@@ -7,6 +7,7 @@
 // sending it to the provider.
 
 import * as readline from "node:readline/promises";
+import { emitKeypressEvents } from "node:readline";
 import { assistantMessage, toolResultMessage, userMessage, type Message, type ToolCall, type ToolResult } from "./messages.ts";
 import type { Provider } from "./providers/index.ts";
 import { getDefaultTools, type Tool } from "./tools/base.ts";
@@ -76,8 +77,13 @@ export class Agent {
     this.systemPrompt = buildSystemPrompt(tools, perms, extraSystemPrompt);
   }
 
-  /** Process a user message and stream the response. Returns false if max turns hit. */
-  async chat(userInput: string): Promise<boolean> {
+  /**
+   * Process a user message and stream the response. Returns false if max turns
+   * hit. `signal` (Esc) interrupts: a mid-stream abort keeps the partial answer
+   * as context with no tool calls; a mid-tool abort keeps every call paired with
+   * an `[interrupted]` result. Either way the transcript stays well-formed.
+   */
+  async chat(userInput: string, signal?: AbortSignal): Promise<boolean> {
     this.messages.push(userMessage(userInput));
 
     for (;;) {
@@ -90,29 +96,46 @@ export class Agent {
       let responseText = "";
       let toolCalls: ToolCall[] = [];
 
-      this.spinner.start("Thinking…");
+      this.spinner.start("Thinking… (Esc to interrupt)");
       let printed = false;
-      for await (const event of this.provider.stream(this.messages, this.tools, this.systemPrompt)) {
-        if (event.text) {
-          this.spinner.stop();
-          process.stdout.write(event.text);
-          responseText += event.text;
-          printed = true;
+      let interrupted = false;
+      try {
+        for await (const event of this.provider.stream(this.messages, this.tools, this.systemPrompt, signal)) {
+          if (event.text) {
+            this.spinner.stop();
+            process.stdout.write(event.text);
+            responseText += event.text;
+            printed = true;
+          }
+          if (event.toolUseStarted) this.spinner.stop();
+          if (event.toolCalls) toolCalls = event.toolCalls;
+          if (event.usage) {
+            this.inputTokens += event.usage.inputTokens;
+            this.outputTokens += event.usage.outputTokens;
+          }
         }
-        if (event.toolUseStarted) this.spinner.stop();
-        if (event.toolCalls) toolCalls = event.toolCalls;
-        if (event.usage) {
-          this.inputTokens += event.usage.inputTokens;
-          this.outputTokens += event.usage.outputTokens;
-        }
+      } catch (e) {
+        // An Esc-abort surfaces as a stream rejection; anything else is real.
+        if (!signal?.aborted) throw e;
+        interrupted = true;
       }
       this.spinner.stop();
       if (printed) process.stdout.write("\n");
 
+      if (interrupted) {
+        // Keep the partial answer as context — or an [interrupted] marker if Esc
+        // landed before any token streamed (an empty assistant message is
+        // rejected by the provider and breaks role alternation). Drop any
+        // incomplete tool calls so no tool_use is left unanswered.
+        this.messages.push(assistantMessage(responseText || "[interrupted]", []));
+        console.log(color.yellow("[interrupted]"));
+        return true;
+      }
+
       this.messages.push(assistantMessage(responseText, toolCalls));
       if (toolCalls.length === 0) break;
 
-      const results = await this.runToolCalls(toolCalls);
+      const results = await this.runToolCalls(toolCalls, signal);
 
       // Verified invariant: results pair 1:1 with calls, ids in order (T1).
       if (!pairs(toolCalls.map((c) => ({ id: c.id, name: c.name })), results.map((r) => ({ toolCallId: r.toolCallId, isError: r.isError })))) {
@@ -124,13 +147,26 @@ export class Agent {
       if (!wellFormed(toTranscript(this.messages))) {
         throw new Error("internal: malformed conversation transcript");
       }
+
+      // Interrupted during the tool batch: every call already has a paired
+      // result above, so the transcript is well-formed — stop and hand back.
+      if (signal?.aborted) {
+        console.log(color.yellow("[interrupted]"));
+        return true;
+      }
     }
     return true;
   }
 
-  private async runToolCalls(toolCalls: ToolCall[]): Promise<ToolResult[]> {
+  private async runToolCalls(toolCalls: ToolCall[], signal?: AbortSignal): Promise<ToolResult[]> {
     const results: ToolResult[] = [];
     for (const call of toolCalls) {
+      // Interrupted: don't start this call, but still emit a paired result so the
+      // batch keeps one result per call in order (transcript T1).
+      if (signal?.aborted) {
+        results.push({ toolCallId: call.id, content: "[interrupted by user]", isError: true });
+        continue;
+      }
       const tool = this.toolsByName.get(call.name);
       if (!tool) {
         results.push({ toolCallId: call.id, content: `[error: unknown tool '${call.name}']`, isError: true });
@@ -147,11 +183,13 @@ export class Agent {
         continue;
       }
       this.showToolExecution(tool, call);
-      this.spinner.start("Executing…");
-      const content = await tool.execute(call.args);
+      this.spinner.start("Executing… (Esc to interrupt)");
+      const content = await tool.execute(call.args, signal);
       this.spinner.stop();
       this.showToolResult(content);
-      results.push({ toolCallId: call.id, content, isError: false });
+      // If Esc landed while this tool ran, the tool returned "[interrupted…]";
+      // mark it an error result (still paired) and let the loop wind down.
+      results.push({ toolCallId: call.id, content, isError: signal?.aborted ?? false });
     }
     return results;
   }
@@ -200,6 +238,21 @@ export async function runAgent(opts: RunOptions): Promise<void> {
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
   const ask = (q: string) => rl.question(q);
 
+  // Esc-to-interrupt. While a turn is running, `activeController` is set; a press
+  // of Esc aborts it (cancelling the provider stream / running tool). readline
+  // keeps a TTY in raw mode for the interface's lifetime, so keypress events flow
+  // between prompts. Only armed on a real terminal — piped input has no Esc.
+  let activeController: AbortController | null = null;
+  const interactive = process.stdin.isTTY === true;
+  if (interactive) {
+    emitKeypressEvents(process.stdin);
+    process.stdin.on("keypress", (_s, key) => {
+      if (key?.name === "escape" && activeController && !activeController.signal.aborted) {
+        activeController.abort();
+      }
+    });
+  }
+
   const state = emptyState(perms.autoAllow, perms.autoAllowCwd, perms.rejectPrompts);
   const gate = new PermissionGate(state, perms.pathBased, ask);
   const agent = new Agent(opts.provider, tools, perms, gate, opts.maxTurns, extraPrompt);
@@ -208,7 +261,9 @@ export async function runAgent(opts: RunOptions): Promise<void> {
     panel(
       `${color.bold("Henri")} — a hackable agent CLI (verified core via LemmaScript)\n` +
         `Provider: ${opts.providerName} | Model: ${opts.model}\n` +
-        "Type your message and press Enter. Ctrl+C to exit.",
+        (interactive
+          ? "Type your message and press Enter. Esc interrupts; Ctrl+C exits."
+          : "Type your message and press Enter. Ctrl+C to exit."),
       { border: "blue" },
     ),
   );
@@ -229,10 +284,13 @@ export async function runAgent(opts: RunOptions): Promise<void> {
         break; // EOF / closed (Ctrl+C, end of piped input)
       }
       if (!input.trim()) continue;
+      activeController = new AbortController();
       try {
-        await agent.chat(input);
+        await agent.chat(input, activeController.signal);
       } catch (e) {
         console.error(color.red(`\nError: ${(e as Error).message}`));
+      } finally {
+        activeController = null;
       }
     }
   } finally {

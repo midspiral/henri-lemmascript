@@ -20,6 +20,10 @@ export interface StreamEvent {
 
 export interface Provider {
   name: string;
-  /** Stream a response from the LLM, given history, tools, and a system prompt. */
-  stream(messages: Message[], tools: Tool[], system: string): AsyncIterable<StreamEvent>;
+  /**
+   * Stream a response from the LLM, given history, tools, and a system prompt.
+   * `signal`, when aborted (Esc), cancels the in-flight request — the iteration
+   * rejects, which the loop turns into a clean interrupt (see agent.ts).
+   */
+  stream(messages: Message[], tools: Tool[], system: string, signal?: AbortSignal): AsyncIterable<StreamEvent>;
 }

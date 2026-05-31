@@ -19,7 +19,13 @@ export interface Tool {
   description: string;
   parameters: object; // JSON Schema
   requiresPermission: boolean;
-  execute(args: Record<string, unknown>): Promise<string>;
+  /**
+   * Run the tool. `signal`, when aborted (Esc), cancels long-running work
+   * (subprocess / network); the loop also short-circuits any not-yet-started
+   * call to a paired `[interrupted by user]` result, preserving call/result
+   * pairing (transcript T1).
+   */
+  execute(args: Record<string, unknown>, signal?: AbortSignal): Promise<string>;
 }
 
 function str(args: Record<string, unknown>, key: string, fallback = ""): string {
@@ -36,15 +42,16 @@ export const bashTool: Tool = {
     required: ["command"],
   },
   requiresPermission: true,
-  async execute(args) {
+  async execute(args, signal) {
     const command = str(args, "command");
     try {
-      const { stdout, stderr } = await execAsync(command, { timeout: 120_000, maxBuffer: 10 * 1024 * 1024 });
+      const { stdout, stderr } = await execAsync(command, { timeout: 120_000, maxBuffer: 10 * 1024 * 1024, signal });
       let output = stdout;
       if (stderr) output += `\n[stderr]\n${stderr}`;
       return output || "(no output)";
     } catch (e: unknown) {
       const err = e as { stdout?: string; stderr?: string; code?: number; killed?: boolean; message?: string };
+      if (signal?.aborted) return "[interrupted by user]";
       if (err.killed) return "[error: command timed out after 120 seconds]";
       let output = err.stdout ?? "";
       if (err.stderr) output += `\n[stderr]\n${err.stderr}`;
@@ -161,7 +168,7 @@ export const grepTool: Tool = {
     required: ["pattern"],
   },
   requiresPermission: true, // managed by path (auto-allow within cwd)
-  async execute(args) {
+  async execute(args, signal) {
     const pattern = str(args, "pattern");
     const searchPath = str(args, "path", ".");
     const glob = typeof args["glob"] === "string" ? (args["glob"] as string) : undefined;
@@ -171,11 +178,12 @@ export const grepTool: Tool = {
     if (glob) cmd.push("--glob", glob);
     cmd.push(pattern, searchPath);
     try {
-      const { stdout } = await execFileAsync("rg", cmd, { timeout: 30_000, maxBuffer: 10 * 1024 * 1024 });
+      const { stdout } = await execFileAsync("rg", cmd, { timeout: 30_000, maxBuffer: 10 * 1024 * 1024, signal });
       if (stdout.length > 50_000) return stdout.slice(0, 50_000) + "\n[truncated...]";
       return stdout || "(no matches)";
     } catch (e: unknown) {
       const err = e as { code?: number; stdout?: string; stderr?: string };
+      if (signal?.aborted) return "[interrupted by user]";
       if (err.code === 1) return "(no matches)";
       if (err.code === "ENOENT" as unknown as number) {
         return "[error: ripgrep (rg) not found. Install it: brew install ripgrep]";
@@ -223,13 +231,16 @@ export const webFetchTool: Tool = {
     required: ["url"],
   },
   requiresPermission: true, // network access requires permission
-  async execute(args) {
+  async execute(args, signal) {
     let url = str(args, "url");
     if (!url.startsWith("http://") && !url.startsWith("https://")) url = "https://" + url;
+    // Honor both the 30s timeout and a user Esc-abort.
+    const timeout = AbortSignal.timeout(30_000);
+    const fetchSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
     try {
       const res = await fetch(url, {
         headers: { "User-Agent": "henri-lemmascript/0.1 (AI coding assistant)" },
-        signal: AbortSignal.timeout(30_000),
+        signal: fetchSignal,
       });
       if (!res.ok) return `[error: HTTP ${res.status} ${res.statusText}]`;
       let content = await res.text();
@@ -245,6 +256,7 @@ export const webFetchTool: Tool = {
       if (content.length > 50_000) content = content.slice(0, 50_000) + "\n[truncated...]";
       return content || "(empty response)";
     } catch (e: unknown) {
+      if (signal?.aborted) return "[interrupted by user]";
       return `[error: ${(e as Error).message}]`;
     }
   },
