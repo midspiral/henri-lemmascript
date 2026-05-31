@@ -24,12 +24,18 @@ export const MODEL_DEFAULTS: Record<string, string> = {
 // /compact default: how many recent messages to keep when summarizing history.
 export const DEFAULT_COMPACT_KEEP = 6;
 
+// Auto-compaction: trigger compact() once a turn's reported input-token count
+// crosses this many tokens. 0 disables it (manual /compact only).
+export const DEFAULT_AUTO_COMPACT_AT = 150_000;
+
 export interface ProviderConfig {
   provider: string;
   model: string;
   region?: string;
   maxTurns?: number;
   compactKeep: number;
+  /** Input-token threshold for automatic compaction; 0 = disabled. */
+  autoCompactAt: number;
 }
 
 export interface ConfigArgs {
@@ -38,6 +44,8 @@ export interface ConfigArgs {
   region?: string;
   maxTurns?: number;
   compactKeep?: number;
+  autoCompactAt?: number;
+  noAutoCompact?: boolean;
 }
 
 export function getProviderConfig(args: ConfigArgs): ProviderConfig {
@@ -64,5 +72,19 @@ export function getProviderConfig(args: ConfigArgs): ProviderConfig {
     compactKeep = DEFAULT_COMPACT_KEEP;
   }
 
-  return { provider, model, region, maxTurns, compactKeep };
+  let autoCompactAt: number | undefined;
+  if (args.noAutoCompact) {
+    autoCompactAt = 0; // explicitly disabled
+  } else {
+    autoCompactAt = args.autoCompactAt;
+    if (autoCompactAt === undefined) {
+      const env = envVar("AUTO_COMPACT_AT");
+      if (env) autoCompactAt = parseInt(env, 10);
+    }
+    if (autoCompactAt === undefined || Number.isNaN(autoCompactAt) || autoCompactAt < 0) {
+      autoCompactAt = DEFAULT_AUTO_COMPACT_AT;
+    }
+  }
+
+  return { provider, model, region, maxTurns, compactKeep, autoCompactAt };
 }

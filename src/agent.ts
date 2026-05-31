@@ -112,6 +112,8 @@ export class Agent {
   turns = 0;
   inputTokens = 0;
   outputTokens = 0;
+  /** Input tokens reported by the most recent response ≈ current context size. */
+  private lastContextTokens = 0;
 
   constructor(
     private provider: Provider,
@@ -121,6 +123,7 @@ export class Agent {
     private maxTurns: number | undefined,
     extraSystemPrompt: string | undefined,
     private compactKeep: number,
+    private autoCompactAt: number,
   ) {
     this.tools = tools;
     this.toolsByName = new Map(tools.map((t) => [t.name, t]));
@@ -162,6 +165,9 @@ export class Agent {
           if (event.usage) {
             this.inputTokens += event.usage.inputTokens;
             this.outputTokens += event.usage.outputTokens;
+            // The input tokens of the latest response ≈ the whole context the
+            // model just read — the signal auto-compaction watches.
+            this.lastContextTokens = event.usage.inputTokens;
           }
         }
       } catch (e) {
@@ -205,7 +211,22 @@ export class Agent {
         return true;
       }
     }
+    // Turn finished normally (assistant answered with no tool calls). If the
+    // context has grown past the threshold, compact before the next prompt.
+    await this.maybeAutoCompact(signal);
     return true;
+  }
+
+  /** Auto-compact once the latest context size crosses the configured threshold. */
+  private async maybeAutoCompact(signal?: AbortSignal): Promise<void> {
+    if (this.autoCompactAt <= 0 || this.lastContextTokens <= this.autoCompactAt) return;
+    // If nothing can be dropped (findCut keeps everything), don't loop/spend a
+    // summarization call — a single oversized recent message can't be compacted.
+    if (findCut(toTranscript(this.messages), this.compactKeep) === 0) return;
+    console.log(
+      color.dim(`\n[auto-compacting: context ~${this.lastContextTokens} tokens > ${this.autoCompactAt}]`),
+    );
+    await this.compact(undefined, signal);
   }
 
   /**
@@ -343,6 +364,7 @@ export interface RunOptions {
   providerName: string;
   model: string;
   compactKeep: number;
+  autoCompactAt: number;
 }
 
 export async function runAgent(opts: RunOptions): Promise<void> {
@@ -376,12 +398,13 @@ export async function runAgent(opts: RunOptions): Promise<void> {
 
   const state = emptyState(perms.autoAllow, perms.autoAllowCwd, perms.rejectPrompts);
   const gate = new PermissionGate(state, perms.pathBased, ask);
-  const agent = new Agent(opts.provider, tools, perms, gate, opts.maxTurns, extraPrompt, opts.compactKeep);
+  const agent = new Agent(opts.provider, tools, perms, gate, opts.maxTurns, extraPrompt, opts.compactKeep, opts.autoCompactAt);
 
   console.log(
     panel(
       `${color.bold("Henri")} — a hackable agent CLI (verified core via LemmaScript)\n` +
         `Provider: ${opts.providerName} | Model: ${opts.model}\n` +
+        `Auto-compact: ${opts.autoCompactAt > 0 ? `on (over ${opts.autoCompactAt} input tokens, keep ${opts.compactKeep})` : "off"}\n` +
         (interactive
           ? "Type your message and press Enter. Esc interrupts; Ctrl+C exits.\nCommands: /compact [n], /help."
           : "Type your message and press Enter. Ctrl+C to exit."),
@@ -413,6 +436,9 @@ export async function runAgent(opts: RunOptions): Promise<void> {
           "Commands:\n" +
             `  /compact [n]  Summarize old history, keep the n most recent messages (default ${opts.compactKeep}).\n` +
             "  /help         Show this help.\n" +
+            (opts.autoCompactAt > 0
+              ? `Auto-compaction: on (when a turn's input tokens exceed ${opts.autoCompactAt}).\n`
+              : "Auto-compaction: off.\n") +
             "Esc interrupts the agent mid-turn; Ctrl+C exits.",
         );
         continue;
