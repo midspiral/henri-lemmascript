@@ -7,7 +7,7 @@ on:
 
 jobs:
   # Regenerate the Dafny merge base, enforce additions-only, and verify all
-  # 48 VCs across the three verified cores.
+  # 60 VCs across four modules.
   dafny:
     runs-on: ubuntu-latest
     steps:

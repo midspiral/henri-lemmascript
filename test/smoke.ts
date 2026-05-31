@@ -1,5 +1,5 @@
 // Smoke test for the verified-core modules — runtime witnesses for the
-// properties we'll prove in Dafny (Phases 1–3). Run: npx tsx test/smoke.ts
+// properties we'll prove in Dafny (Phases 1–4). Run: npx tsx test/smoke.ts
 
 import assert from "node:assert/strict";
 import { decide, isWithin, normalize, type PermState, type Req } from "../src/permissions.ts";

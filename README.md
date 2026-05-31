@@ -13,7 +13,7 @@ imported directly by the live agent. See [DESIGN.md](DESIGN.md).
 
 - **Phase 0 — runnable skeleton: done.** Multi-provider agent (Anthropic + Bedrock),
   the full tool set, permissions/transcript/hooks written in fragment-friendly TS.
-- **Phase 1 — `permissions.ts` verified: done.** `lsc check` green (13 Dafny VCs,
+- **Phase 1 — `permissions.ts` verified: done.** `lsc check` green (14 Dafny VCs,
   0 errors): soundness, path-traversal containment, grant monotonicity, reject-safety.
   Proofs in [`src/permissions.dfy`](src/permissions.dfy).
 - **Phase 2 — `transcript.ts` verified: done.** `lsc check` green (10 Dafny VCs,
@@ -80,6 +80,7 @@ For the exact theorems (every lemma, its statement, and the proof techniques), s
 | `src/permissions.ts` | `decide()` soundness, **path-traversal containment**, grant monotonicity, reject-prompt safety | a path escaping cwd is never auto-granted |
 | `src/transcript.ts` | tool-call/result pairing + **no-orphan invariant** of the loop | the conversation sent to the provider is always well-formed |
 | `src/hooks.ts` | merge removal, **name-uniqueness (a fix)**, order-independence, additivity | hooks only ever add access |
+| `src/edit.ts` | `editFile()` decision soundness, **single-occurrence splice faithfulness**, length law | an edit touches exactly the matched span, nothing else |
 
 The shell (`agent.ts`, `permission-gate.ts`, `providers/`, `tools/`, `ui.ts`,
 `cli.ts`) is unverified and gates every action through the core.

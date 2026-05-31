@@ -15,6 +15,17 @@ correct?*
 The headline: **60 Dafny verification conditions, 0 errors**, across four
 modules — and the annotated TypeScript is the production code the agent runs.
 
+Two invariants are the reason this matters, and everything below builds toward
+proving them:
+
+- **No silent cwd escape.** With no explicit grant, a path that resolves outside
+  the working directory is *never* auto-allowed — `../../secret` cannot slip
+  through the gate (`permissions.ts`, lemma `P2_AutoGrantImpliesWithin`).
+- **No malformed tool-result transcript.** Every turn the loop appends a
+  tool-result block and the conversation stays well-formed — no orphaned
+  `tool_result`, and no `tool_use` left unanswered, is ever sent to the provider
+  (`transcript.ts`, lemma `T2_AppendPreservesWellFormed`).
+
 ## The Big Picture: a verified core inside an unverified shell
 
 The original Henri is mostly *effectful glue* — streaming, terminal UI,
