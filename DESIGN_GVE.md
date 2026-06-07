@@ -138,6 +138,16 @@ and must never re-implement core logic, or the soundness theorem stops covering 
 the unverified binding-provenance verdict. `taintWf` is the sound over-approximation
 (flags a superset, never less), which is the security-relevant direction for a gate.
 
+*Typecheck boundary.* henri checks against guardians' **published types**
+(`index.d.ts` via `exports.types`), not its verified source — `skipLibCheck` skips the
+declaration, so henri never re-lints the cores. This is the correct package boundary
+(each package lints its own source; the consumer checks against the dependency's types)
+and it is *necessary*: guardians' proof-carrier functions have `return true` bodies whose
+params are referenced only in `//@ ensures`, so henri's `noUnusedParameters` would
+otherwise reject the verified source. The `.d.ts` is hand-kept in sync with
+`src/verify.ts`'s exports; drift is caught because both the gate and its test type
+against it.
+
 **Reused from henri (the runtime):** providers, tool set + executor, the permission gate
 (now doubling as a runtime residual check), transcript, the LemmaScript toolchain.
 
@@ -192,9 +202,9 @@ still apply, and the permission gate doubles as the paper's **runtime residual**
 
 | Stage | Lands | Status |
 |---|---|---|
-| **0 — kernel seam + DSL** | guardians stood up as an importable sibling package (`src/index.ts` + `exports`); henri links it via `file:`; seam smoke-verified (`test/gve-smoke.ts`: proved gate rejects an exfil plan, admits a safe one); guardians/henri/seam typechecks all green. *Remaining:* pin the plan-DSL schema against henri's real tool signatures | **seam done; DSL next** |
-| **1 — plan generation** | a henri mode (cli entry + plan prompt) that emits a well-formed structured plan instead of ReAct calls; validate it | _planned_ |
-| **2 — verify-before-execute (MVP)** | gate execution on `verifyWf` under henri's source→sink policy; reject + print the witness; the live injection demo, run for real | _planned_ |
+| **0 — kernel seam + DSL** | guardians stood up as an importable sibling package (`index.d.ts` types boundary + `exports`); henri links it via `file:`; plan-DSL pinned + henri tool classification + `exfilPolicy` (`src/gve/policy.ts`); gate + plan validation (`src/gve/gate.ts`); tests green (`test/gve.ts` over real tools, `test/gve-smoke.ts` seam); henri + guardians typechecks both exit 0 | **done** |
+| **1 — plan generation** | DSL + `validatePlan` + `gatePlan` in place. *Remaining:* a henri mode (cli entry + plan prompt) whose LLM EMITS a well-formed plan (structured output) instead of ReAct calls | _scaffold done; LLM-emit next_ |
+| **2 — verify-before-execute (MVP)** | `gatePlan` is the gate (proved `taintWf`/`automaton`, named-rule witness). *Remaining:* the executor for an admitted plan + the live injection demo, run for real in henri | _gate done; executor + demo next_ |
 | **3 — literate explanation** | project the verified plan to a human preview shown before execution | _planned_ |
 | **4 — replan-on-reject (stretch)** | feed the rejection witness back to the LLM; synthesize a safe plan; loop or give up | _stretch_ |
 | **5 — hybrid runtime residual (stretch)** | keep the permission gate as runtime defense; emit assertions for statically-undecidable residuals | _stretch_ |
