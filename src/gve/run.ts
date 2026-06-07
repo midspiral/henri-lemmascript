@@ -1,7 +1,8 @@
 // Generate-verify-execute orchestration (DESIGN_GVE.md §3). Generate a plan from the
-// model, then run the pure pipeline parse → validate → verify(gate). Execution of an
-// admitted plan is Stage 2 (stubbed here). The pure half (processPlanText) and the
-// provider seam (planViaProvider) are both offline-testable.
+// model, run the pure pipeline parse → validate → verify(gate), and execute an admitted
+// plan behind the permission gate. A rejected plan is reported and stopped — the human
+// decides. The pure half (processPlanText) and the provider seam (planViaProvider) are
+// both offline-testable.
 import * as readline from "node:readline/promises";
 import type { Provider } from "../providers/index.ts";
 import type { Policy, Workflow } from "guardians";

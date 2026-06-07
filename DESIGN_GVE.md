@@ -9,7 +9,7 @@ and only a verified plan executes.
 > **The thing that must never break.** No plan that violates the security policy is
 > ever executed. henri's LLM proposes a whole workflow as a structured plan; the plan
 > is checked by a **proven-sound** policy checker before execution; an unsafe plan is
-> rejected (and, as a stretch, replanned), never run. Prompt injection in tool data,
+> rejected, never run. Prompt injection in tool data,
 > results, or descriptions cannot trigger an unsafe action, because the admit/deny
 > verdict comes from a Dafny-proven checker over the *symbolic* plan — not from the
 > model that may have been injected.
@@ -61,8 +61,7 @@ that plan." There is **no runtime taint instrumentation**.
   ReAct (today):     LLM → tool call → [human y/n] → execute → observe → repeat
   GVE  (this mode):  LLM → PLAN ───→ marshal ──→ VERIFY ──→ execute (only if safe)
                                                     │
-                                                    └─ unsafe → reject + witness
-                                                                 (stretch: replan)
+                                                    └─ unsafe → reject + witness (stop)
 ```
 
 1. **Plan.** The LLM emits a structured workflow plan (a step-list with symbolic
@@ -72,7 +71,7 @@ that plan." There is **no runtime taint instrumentation**.
 3. **Verify.** Run the proven-sound checker `verifyWf(plan)` under henri's tool
    classification. Admit iff it returns safe.
 4. **Execute.** Run the verified plan, step by step. Reject → report the witness chain
-   and stop; (stretch) feed the rejection back to the LLM to replan.
+   and stop (the human decides what to do with a blocked plan).
 
 ### The verification mechanism — a proof *schema*, not a proof per plan
 
@@ -153,7 +152,7 @@ against it.
 
 **New on this branch:** the plan DSL + plan-mode prompt/generation; the marshalling glue
 (plan → `Step[]`, tool classification, policy); the verify-before-execute gate; the
-executor for a verified plan; literate explanation; (stretch) the replan loop. All
+executor for a verified plan; literate explanation. All
 shells in `.ts`, typechecked against the verified core.
 
 ## 7. The spectacle — run it, for real
@@ -205,14 +204,14 @@ still apply, and the permission gate doubles as the paper's **runtime residual**
 | **0 — kernel seam + DSL** | guardians stood up as an importable sibling package (`index.d.ts` types boundary + `exports`); henri links it via `file:`; plan-DSL pinned + henri tool classification + `exfilPolicy` (`src/gve/policy.ts`); gate + plan validation (`src/gve/gate.ts`); tests green (`test/gve.ts` over real tools, `test/gve-smoke.ts` seam); henri + guardians typechecks both exit 0 | **done** |
 | **1 — plan generation** | planner prompt (`src/gve/prompt.ts`), plan parser + literate render (`src/gve/plan.ts`), orchestration (`src/gve/run.ts`: `processPlanText`/`planViaProvider`/`printOutcome`), `henri plan <task>` CLI entry, offline test with a fake provider (`test/gve-plan.ts`) — all green. *Remaining:* a live run against a real provider (needs an API key) | **scaffold done; live run pending** |
 | **2 — verify-before-execute (MVP)** | gate (`gatePlan`) + faithful executor (`src/gve/execute.ts`: runs exactly the plan, resolves `@ref` into arg slots only, linear plans) wired into `runPlanMode` behind the permission gate (runtime residual, §9); deterministic injection demo (`test/gve-demo.ts`) green — admitted plan executes (poisoned content stays in a local write arg), exfil plan rejected before the executor is ever invoked. *Remaining:* the live run against a real provider | **done (deterministic); live run pending** |
-| **3 — literate explanation** | project the verified plan to a human preview shown before execution | _planned_ |
-| **4 — replan-on-reject (stretch)** | feed the rejection witness back to the LLM; synthesize a safe plan; loop or give up | _stretch_ |
-| **5 — hybrid runtime residual (stretch)** | keep the permission gate as runtime defense; emit assertions for statically-undecidable residuals | _stretch_ |
+| **3 — literate explanation** | `renderLiterate` shows the verified plan as a human preview before execution (in `printOutcome`) | _done_ |
+| **4 — hybrid runtime residual (stretch)** | keep the permission gate as runtime defense; emit assertions for statically-undecidable residuals | _stretch_ |
 
-Stage 2 is the spectacle and the gate of the whole idea; Stages 0–2 are the MVP. The
-genuinely uncertain part — and the real research interest — is Stage 4: whether an LLM
-can reliably *replan* from a rejection witness rather than re-emit a variant of the same
-unsafe plan.
+Stage 2 is the spectacle and the gate of the whole idea; Stages 0–3 are the MVP. A
+rejection is the **end state**: the witness is reported and the human decides. The agent
+does not auto-recover — replan-on-reject was prototyped and deliberately stashed, because
+a rejected plan may be an *injection* that should be surfaced, not a mistake to be worked
+around (and replanning is the one piece with no verification behind it).
 
 ## 11. Prototype here, graduate later
 
@@ -250,7 +249,7 @@ shipped README until then.
             safe?  ──yes──►  EXECUTE the verified plan   (henri runtime: tools,
               │              step by step                 executor, permission
               └──no──►  REJECT + print witness chain      gate as runtime residual)
-                        (stretch: replan from witness)
+                        (stop — the human decides)
 
   Above the line: henri runtime + new glue (small, auditable).
   Below the line: machine-checked by Dafny via the guardians cores.
