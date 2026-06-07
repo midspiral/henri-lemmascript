@@ -2,3 +2,4 @@ src/permissions.ts
 src/transcript.ts
 src/hooks.ts
 src/edit.ts
+src/gve/exec_core.ts

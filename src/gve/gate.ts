@@ -28,19 +28,22 @@ function toolSteps(steps: Step[]): ToolStep[] {
   return out;
 }
 
-// Well-formedness: every tool is allowed, and every symbolic ref names some bind in
-// the plan. (Strict lexical scoping across conditional branches is a refinement; the
-// proved taint check is tool-order based and does not depend on it.)
+// Well-formedness: every tool is allowed, and every symbolic ref names a bind from an
+// EARLIER step. The in-order discipline matches executePlan, which resolves refs as it
+// goes — a forward ref would pass an all-binds check but fail at execution. exec_core.ts
+// proves the in-order check is the sound strengthening (`fixIsStrengthening`) and that
+// the all-binds shortcut is unsound (`forwardRefGap`). This is the projection onto that
+// core: a step's `reads` are its SymRef args, its `bind` is `s.bind`.
 export function validatePlan(plan: Workflow, policy: Policy): { ok: boolean; errors: string[] } {
   const errors: string[] = [];
   const steps = toolSteps(plan.steps);
-  const binds = new Set<string>();
-  for (const s of steps) if (s.bind) binds.add(s.bind);
+  const bound = new Set<string>(); // names bound by earlier steps (in-order)
   for (const s of steps) {
     if (!policy.allowedTools.includes(s.tool)) errors.push(`tool not allowed: ${s.tool}`);
     for (const [k, v] of Object.entries(s.args)) {
-      if (isSymRef(v) && !binds.has(v.ref)) errors.push(`unbound ref @${v.ref} in ${s.tool}.${k}`);
+      if (isSymRef(v) && !bound.has(v.ref)) errors.push(`unbound ref @${v.ref} in ${s.tool}.${k}`);
     }
+    if (s.bind) bound.add(s.bind); // available to LATER steps only
   }
   return { ok: errors.length === 0, errors };
 }

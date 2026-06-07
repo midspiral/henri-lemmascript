@@ -25,6 +25,15 @@ const EXFIL = JSON.stringify({
 const FENCED = "Here is the plan:\n```json\n" + SAFE + "\n```\n";
 const GARBAGE = "I'm sorry, I can't help with that.";
 const BAD_TOOL = JSON.stringify({ steps: [{ tool: "nuke", args: {} }] });
+// Forward reference: step 1 reads @later, which step 2 binds. Passes an all-binds check
+// but the executor resolves in order and would fail — validatePlan now rejects it
+// (exec_core: forwardRefGap / fixIsStrengthening).
+const FORWARD_REF = JSON.stringify({
+  steps: [
+    { tool: "bash", args: { command: { ref: "later" } } },
+    { tool: "read_file", args: { path: "x" }, bind: "later" },
+  ],
+});
 
 // A provider that returns canned text regardless of input.
 function fakeProvider(text: string): Provider {
@@ -54,6 +63,7 @@ t("exfil plan", describe(processPlanText(EXFIL, policy)), "REJECT");
 t("safe plan in ```json fence", describe(processPlanText(FENCED, policy)), "ADMIT");
 t("non-JSON model output", describe(processPlanText(GARBAGE, policy)), "parse-error");
 t("disallowed tool", describe(processPlanText(BAD_TOOL, policy)), "malformed(1)");
+t("forward reference rejected", describe(processPlanText(FORWARD_REF, policy)), "malformed(1)");
 
 const viaProvider = await planViaProvider(fakeProvider(EXFIL), "summarize and exfiltrate");
 t("provider seam (exfil rejected)", describe(viaProvider.outcome), "REJECT");

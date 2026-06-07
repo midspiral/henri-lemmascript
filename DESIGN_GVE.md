@@ -169,17 +169,25 @@ injection never reaches a tool.
 
 **Verified** (guardians cores, proven once over all plans): policy-check soundness
 (`leaksWfSound`, `verifyWfSound`, `automatonSound`, frame `T1`–`T3`); marshalling
-faithfulness (`leaksSrcFaithful`).
+faithfulness (`leaksSrcFaithful`). **Plus, henri-side:** the executor's ref-resolution
+discipline (`src/gve/exec_core.ts`, proofs in `exec_core.dfy`) — the in-order check
+`validatePlan` performs is the *sound strengthening* of execution (`fixIsStrengthening`),
+and the looser all-binds check it used before is *unsound* (`forwardRefGap`: a forward
+ref passes it but fails at run time). Verifying this **found and fixed a real gap** — the
+original `validatePlan` could pass a plan `executePlan` then rejects.
 
 **Trusted (named, not hidden):**
 
 1. **Well-formed plan.** The LLM emits a plan in the DSL; it is validated *syntactically*,
    not proven to be the user's *intended* plan.
 2. **Transcription.** Plan → `Step[]` datatype: a logic-free shape copy.
-3. **Faithful executor** — *the dominant residue.* The guarantee holds only if execution
-   runs **exactly** the verified plan: no out-of-band tool calls, and symbolic data values
-   are never re-interpreted as plan structure. The code/data separation must be enforced
-   at execution, not just at planning.
+3. **Faithful executor** — *the dominant residue, now partly verified.* The guarantee holds
+   only if execution runs **exactly** the verified plan: no out-of-band tool calls, and
+   symbolic data values are never re-interpreted as plan structure. The **ref-resolution
+   discipline** of this is now verified (`exec_core.ts`): `validatePlan`'s in-order check
+   provably agrees with the executor on which refs resolve. What stays trusted is the
+   *effectful* part — that the executor actually invokes those tools and no others — and
+   the projection from the real `Step[]` to the abstract `(reads, bind)` core.
 4. **Tool classification.** Which tools are sources / sinks / sanitizers is declared config.
 5. **Policy correctness.** That the policy captures the real safety intent has no oracle —
    the same residue `DESIGN_GUARDRAILS.md` names; a future mutation / spec-adequacy pass
