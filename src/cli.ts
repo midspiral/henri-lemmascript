@@ -13,6 +13,7 @@ const HELP = `henri-lemmascript — a hackable agent CLI with a LemmaScript-veri
 
 Usage: henri [options]            (after 'npm link')
    or: npm run henri -- [options]
+   or: henri plan <task>          (generate-verify-execute: plan → verify → run)
 
 Options:
   -p, --provider <name>  LLM provider: ${PROVIDERS.join(" | ")} (default: ${DEFAULT_PROVIDER})
@@ -42,7 +43,8 @@ async function loadHook(path: string): Promise<Hook> {
 }
 
 async function main(): Promise<void> {
-  const { values } = parseArgs({
+  const { values, positionals } = parseArgs({
+    allowPositionals: true,
     options: {
       provider: { type: "string", short: "p" },
       model: { type: "string", short: "m" },
@@ -86,6 +88,19 @@ async function main(): Promise<void> {
   for (const path of values.hook ?? []) hooks.push(await loadHook(path));
 
   const provider = createProvider(config.provider, config.model, config.region, config.host);
+
+  // generate-verify-execute mode: `henri plan <task>` — plan, formally verify against
+  // the security policy, then (Stage 2) execute only if admitted. See DESIGN_GVE.md.
+  if (positionals[0] === "plan") {
+    const task = positionals.slice(1).join(" ").trim();
+    if (!task) {
+      console.error("Usage: henri plan <task>");
+      process.exit(2);
+    }
+    const { runPlanMode } = await import("./gve/run.ts");
+    await runPlanMode(provider, task);
+    return;
+  }
 
   await runAgent({
     provider,
