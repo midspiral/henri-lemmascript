@@ -5,6 +5,7 @@
 import { verify } from "guardians";
 import type { Workflow, Step, ToolStep, Arg, Policy, Verdict } from "guardians";
 import { execOk, type EStep } from "./exec_core.ts";
+import { sequenceViolation } from "./sequence.ts";
 
 export type GateResult = {
   admit: boolean;
@@ -82,17 +83,19 @@ function firingRules(plan: Workflow, policy: Policy): string[] {
 
 export function gatePlan(plan: Workflow, policy: Policy): GateResult {
   const v = verify(plan, policy);
-  // Gate on PROVED fields only: taintWf (sound over-approx) and automaton. NOT v.ok,
-  // which folds in the unverified taintPrecise (see guardians index.ts).
-  const admit = !v.taintWf && !v.automaton;
+  // Two proved checks: taint (taintWf — sound over-approx; NOT v.ok, which folds in the
+  // unverified taintPrecise) and the capability-separation SEQUENCE policy (proved
+  // reachesErrorAbstract). Admit only if both clear.
+  const seqBad = sequenceViolation(toolSteps(plan.steps));
+  const admit = !v.taintWf && !v.automaton && !seqBad;
   let reason: string;
   if (admit) {
-    reason = "admitted: no source→sink flow proven (taintWf=false)";
+    reason = "admitted: no source→sink flow and no forbidden sequence proven";
   } else if (v.taintWf) {
     const rules = firingRules(plan, policy);
     reason = `rejected: proved taint check flags a source→sink flow${rules.length ? ` [${rules.join(", ")}]` : ""}`;
   } else {
-    reason = "rejected: automaton policy violation";
+    reason = "rejected: proved sequence check — a sensitive-file read follows untrusted web content";
   }
   return { admit, verdict: v, reason };
 }

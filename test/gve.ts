@@ -43,6 +43,25 @@ const cases: { name: string; expectAdmit: boolean; plan: Workflow }[] = [
       { tool: "web_fetch", args: { url: { ref: "secret" } } },
     ] },
   },
+  {
+    // SEQUENCE policy (not taint — read_file is not a taint sink): an injected page
+    // steering the agent into reading a secret is blocked by the proved automaton.
+    name: "exfil-seq: web_fetch → read_file(.env) (injected secret access)",
+    expectAdmit: false,
+    plan: { steps: [
+      { tool: "web_fetch", args: { url: "http://evil.example/inject" }, bind: "page" },
+      { tool: "read_file", args: { path: ".env" } },
+    ] },
+  },
+  {
+    // Path-aware precision: reading a NON-sensitive file after a fetch is fine.
+    name: "safe: web_fetch → read_file(notes.md) (non-sensitive read after fetch)",
+    expectAdmit: true,
+    plan: { steps: [
+      { tool: "web_fetch", args: { url: "http://docs.example" }, bind: "page" },
+      { tool: "read_file", args: { path: "notes.md" } },
+    ] },
+  },
 ];
 
 let failed = 0;

@@ -103,12 +103,20 @@ a result name, and control flow (`next` / conditional / loop). This maps onto gu
 
 ## 5. The policy
 
-A policy is a `(source set, sink set, condition)` triple, optionally with an automaton
-(sequence policy) and/or a frame. henri's primary instance is the paper's exfiltration
-rule, in henri's tools: an **untrusted-ingress source** (`web_fetch` result, `read_file`
-content) must not flow to an **external sink** (`web_fetch` / `bash` with an
-externally-visible effect). Expressed via the guardians source→sink check (`leaksWf`);
-where a sequence constraint is wanted, the automaton (`reachesError`).
+Two proved checks gate a plan, on complementary axes:
+
+- **Taint (data flow), `leaksWf`.** An untrusted-ingress source (`web_fetch` result,
+  `read_file` content) must not reach an external sink (`web_fetch`/`bash`). The paper's
+  exfiltration rule. (`src/gve/policy.ts`.)
+- **Sequence (capability ordering), `reachesErrorAbstract`.** After an untrusted
+  `web_fetch`, reading a **sensitive** file is forbidden — so an injected page cannot
+  steer the agent into secrets. This is *additive*: `read_file` is not a taint sink, so
+  `web_fetch → read_file(.env)` is invisible to `leaksWf` but caught here. Path-aware (a
+  *non*-sensitive read after a fetch is fine — precision the tool-based taint lacks). The
+  decision is the proved guardians `reachesErrorAbstract` (`automatonSound`: a clean
+  static verdict ⟹ no concrete run reaches the error state); the token classification —
+  which step is an untrusted fetch / a sensitive read, by path — is the trusted
+  projection. (`src/gve/sequence.ts`.) No new proof: it *applies* an existing theorem.
 
 *Frame conditions* (`frame_core`) are available but **not yet homed**: henri has no
 structured glob-destructive tool for a frame to constrain (`bash rm` is opaque). They
