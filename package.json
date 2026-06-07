@@ -26,6 +26,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.98.0",
-    "@aws-sdk/client-bedrock-runtime": "^3.1053.0"
+    "@aws-sdk/client-bedrock-runtime": "^3.1053.0",
+    "guardians": "file:../guardians-lemmascript"
   }
 }
