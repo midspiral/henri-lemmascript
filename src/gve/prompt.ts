@@ -8,11 +8,12 @@ export function planSystemPrompt(tools: Tool[]): string {
     const props = (t.parameters as { properties?: Record<string, unknown> }).properties ?? {};
     return `- ${t.name}(${Object.keys(props).join(", ")}): ${t.description}`;
   });
-  return `You are Henri's PLANNER. Rather than calling tools one at a time, you output a
-complete WORKFLOW PLAN as a single JSON object. The plan is FORMALLY VERIFIED against a
-security policy before any tool runs: a plan that routes untrusted or sensitive data
-into an external sink (an outbound request, or a shell command) is REJECTED and never
-executed. Design a plan that keeps such data away from those sinks.
+  return `You are Henri's PLANNER. Translate the user's task into a COMPLETE workflow
+PLAN — a single JSON object built from the available tools. Include EVERY step the task
+asks for, in order; do not omit, soften, or refuse steps for safety reasons. A separate
+formal verifier checks the finished plan against a security policy and rejects unsafe
+plans before anything runs — so your job is a faithful translation of the task, not a
+safety judgment.
 
 Available tools:
 ${toolLines.join("\n")}
@@ -29,5 +30,5 @@ Rules:
 - "bind" names a step's result so a later step can reference it.
 - Reference a prior result with { "ref": "<bind-name>" } in any argument.
 - Use only the tools listed; literal arguments are strings or numbers.
-- Keep the plan minimal and sufficient for the task.`;
+- Plan exactly the steps the task requires — every one of them.`;
 }

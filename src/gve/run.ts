@@ -2,14 +2,17 @@
 // model, then run the pure pipeline parse → validate → verify(gate). Execution of an
 // admitted plan is Stage 2 (stubbed here). The pure half (processPlanText) and the
 // provider seam (planViaProvider) are both offline-testable.
+import * as readline from "node:readline/promises";
 import type { Provider } from "../providers/index.ts";
 import type { Policy, Workflow } from "guardians";
 import { userMessage } from "../messages.ts";
 import { getDefaultTools } from "../tools/base.ts";
-import { color, panel } from "../ui.ts";
+import { DEFAULT_AUTO_ALLOW_CWD, DEFAULT_PATH_BASED, PermissionGate, emptyState } from "../permission-gate.ts";
+import { color, panel, truncate } from "../ui.ts";
 import { planSystemPrompt } from "./prompt.ts";
 import { parsePlan, renderLiterate } from "./plan.ts";
 import { validatePlan, gatePlan, type GateResult } from "./gate.ts";
+import { executePlan } from "./execute.ts";
 import { exfilPolicy } from "./policy.ts";
 
 export type PlanOutcome =
@@ -57,7 +60,6 @@ export function printOutcome(task: string, outcome: PlanOutcome): void {
   const { gate } = outcome;
   if (gate.admit) {
     console.log(color.green("✓ VERIFIED SAFE before execution — no untrusted→sink flow proven."));
-    console.log(color.dim("  (execution of the admitted plan is Stage 2; not run here.)"));
   } else {
     console.log(color.red("✗ REJECTED before execution — plan not run."));
     console.log(color.dim(`  ${gate.reason}`));
@@ -67,4 +69,24 @@ export function printOutcome(task: string, outcome: PlanOutcome): void {
 export async function runPlanMode(provider: Provider, task: string, signal?: AbortSignal): Promise<void> {
   const { outcome } = await planViaProvider(provider, task, signal);
   printOutcome(task, outcome);
+  if (outcome.stage !== "gate" || !outcome.gate.admit) return;
+
+  // Execute the admitted plan. The plan's data-flow safety is proved; henri's verified
+  // permission gate stays on as the RUNTIME RESIDUAL (DESIGN_GVE.md §9) for the axes the
+  // static check does not cover (e.g. a destructive but untainted path).
+  const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
+  const gate = new PermissionGate(
+    emptyState(new Set(), new Set(DEFAULT_AUTO_ALLOW_CWD), false),
+    new Set(DEFAULT_PATH_BASED),
+    (q) => rl.question(q),
+  );
+  console.log(color.dim("\nExecuting verified-safe plan…"));
+  const exec = await executePlan(outcome.plan, getDefaultTools(), {
+    signal,
+    check: (tool, args) => gate.check(tool, { id: "", name: tool.name, args }),
+    onStep: (st) => console.log(panel(truncate(st.result), { title: `${st.tool}${st.bind ? ` → ${st.bind}` : ""}` })),
+  });
+  rl.close();
+  if (exec.ok) console.log(color.green(`✓ executed ${exec.steps.length} step(s)`));
+  else console.log(color.red(`✗ execution stopped: ${exec.error}`));
 }
