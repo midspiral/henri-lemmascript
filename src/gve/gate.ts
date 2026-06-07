@@ -4,6 +4,7 @@
 // human-readable reason — it makes no taint decision of its own.
 import { verify } from "guardians";
 import type { Workflow, Step, ToolStep, Arg, Policy, Verdict } from "guardians";
+import { execOk, type EStep } from "./exec_core.ts";
 
 export type GateResult = {
   admit: boolean;
@@ -28,23 +29,41 @@ function toolSteps(steps: Step[]): ToolStep[] {
   return out;
 }
 
-// Well-formedness: every tool is allowed, and every symbolic ref names a bind from an
-// EARLIER step. The in-order discipline matches executePlan, which resolves refs as it
-// goes — a forward ref would pass an all-binds check but fail at execution. exec_core.ts
-// proves the in-order check is the sound strengthening (`fixIsStrengthening`) and that
-// the all-binds shortcut is unsound (`forwardRefGap`). This is the projection onto that
-// core: a step's `reads` are its SymRef args, its `bind` is `s.bind`.
+// Project a tool step onto exec_core's abstraction — the SymRef names it reads and the
+// name it binds. This is the trusted boundary (the `string <-> string[]` analog).
+function toEStep(s: ToolStep): EStep {
+  const reads: string[] = [];
+  for (const v of Object.values(s.args)) if (isSymRef(v)) reads.push(v.ref);
+  return { reads, bind: s.bind ? [s.bind] : [] };
+}
+
+// Reporting only: which refs are unbound at their point of use. NOT the decision — that
+// is the verified execOk in validatePlan.
+function unboundRefs(steps: ToolStep[]): string[] {
+  const errs: string[] = [];
+  const bound = new Set<string>();
+  for (const s of steps) {
+    for (const [k, v] of Object.entries(s.args)) {
+      if (isSymRef(v) && !bound.has(v.ref)) errs.push(`unbound ref @${v.ref} in ${s.tool}.${k}`);
+    }
+    if (s.bind) bound.add(s.bind);
+  }
+  return errs;
+}
+
+// Well-formedness: every tool is allowed, and refs resolve in order. The ref-resolution
+// DECISION is the VERIFIED `exec_core.execOk`, run over the projected plan — so the proven
+// function is the one that actually runs, not a re-implementation. (execOk is the in-order
+// check; exec_core.dfy proves it sound — `fixIsStrengthening` — and the all-binds shortcut
+// `validatePlan` used before unsound — `forwardRefGap`.) The tool-allowed check and the
+// error messages are unverified shell.
 export function validatePlan(plan: Workflow, policy: Policy): { ok: boolean; errors: string[] } {
-  const errors: string[] = [];
   const steps = toolSteps(plan.steps);
-  const bound = new Set<string>(); // names bound by earlier steps (in-order)
+  const errors: string[] = [];
   for (const s of steps) {
     if (!policy.allowedTools.includes(s.tool)) errors.push(`tool not allowed: ${s.tool}`);
-    for (const [k, v] of Object.entries(s.args)) {
-      if (isSymRef(v) && !bound.has(v.ref)) errors.push(`unbound ref @${v.ref} in ${s.tool}.${k}`);
-    }
-    if (s.bind) bound.add(s.bind); // available to LATER steps only
   }
+  if (!execOk(steps.map(toEStep), [])) errors.push(...unboundRefs(steps));
   return { ok: errors.length === 0, errors };
 }
 

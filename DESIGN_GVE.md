@@ -169,25 +169,28 @@ injection never reaches a tool.
 
 **Verified** (guardians cores, proven once over all plans): policy-check soundness
 (`leaksWfSound`, `verifyWfSound`, `automatonSound`, frame `T1`–`T3`); marshalling
-faithfulness (`leaksSrcFaithful`). **Plus, henri-side:** the executor's ref-resolution
-discipline (`src/gve/exec_core.ts`, proofs in `exec_core.dfy`) — the in-order check
-`validatePlan` performs is the *sound strengthening* of execution (`fixIsStrengthening`),
-and the looser all-binds check it used before is *unsound* (`forwardRefGap`: a forward
-ref passes it but fails at run time). Verifying this **found and fixed a real gap** — the
-original `validatePlan` could pass a plan `executePlan` then rejects.
+faithfulness (`leaksSrcFaithful`). **Plus, henri-side:** the ref-resolution decision
+(`src/gve/exec_core.ts`, proofs in `exec_core.dfy`). `validatePlan` *calls* the verified
+`execOk` (the in-order check) over a projected plan — so the proven function is the one
+that runs, not a re-implementation. `exec_core.dfy` proves `execOk` is the *sound
+strengthening* of execution (`fixIsStrengthening`) and that the looser all-binds check
+`validatePlan` used before is *unsound* (`forwardRefGap`: a forward ref passes it but
+fails at run time). Formalizing this **found and fixed that gap** — the original
+`validatePlan` could pass a plan `executePlan` then rejects. *Caveat: a shallow property
+(in-order resolution); it does not strengthen the taint/safety guarantee above.*
 
 **Trusted (named, not hidden):**
 
 1. **Well-formed plan.** The LLM emits a plan in the DSL; it is validated *syntactically*,
    not proven to be the user's *intended* plan.
 2. **Transcription.** Plan → `Step[]` datatype: a logic-free shape copy.
-3. **Faithful executor** — *the dominant residue, now partly verified.* The guarantee holds
-   only if execution runs **exactly** the verified plan: no out-of-band tool calls, and
-   symbolic data values are never re-interpreted as plan structure. The **ref-resolution
-   discipline** of this is now verified (`exec_core.ts`): `validatePlan`'s in-order check
-   provably agrees with the executor on which refs resolve. What stays trusted is the
-   *effectful* part — that the executor actually invokes those tools and no others — and
-   the projection from the real `Step[]` to the abstract `(reads, bind)` core.
+3. **Faithful executor** — *the dominant residue.* The guarantee holds only if execution
+   runs **exactly** the verified plan: no out-of-band tool calls, and symbolic data values
+   are never re-interpreted as plan structure. `validatePlan`'s ref-resolution decision is
+   now the verified `execOk` (it runs the proven function), so the trusted surface there
+   shrinks to the `Step → (reads, bind)` projection (`toEStep`). What stays fully trusted is
+   the *effectful* core: that the executor actually invokes those tools, in order, and no
+   others — a fact about effect sequencing that LemmaScript cannot see.
 4. **Tool classification.** Which tools are sources / sinks / sanitizers is declared config.
 5. **Policy correctness.** That the policy captures the real safety intent has no oracle —
    the same residue `DESIGN_GUARDRAILS.md` names; a future mutation / spec-adequacy pass
