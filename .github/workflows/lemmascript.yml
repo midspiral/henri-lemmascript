@@ -2,7 +2,7 @@ name: LemmaScript
 
 on:
   push:
-    branches: [main]
+    branches: [main, generate-verify-execute]
   pull_request:
 
 jobs:
@@ -45,11 +45,18 @@ jobs:
             exit 1
           fi
 
-  # Typecheck the runnable agent and run the runtime smoke witnesses.
+  # Typecheck the runnable agent and run the runtime smoke witnesses. The GVE mode
+  # links the verified `guardians` kernel as a `file:` sibling, so it must be cloned
+  # before `npm ci` resolves the dependency.
   typecheck:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+
+      - name: Clone guardians-lemmascript (sibling — GVE policy kernel)
+        run: |
+          git clone --branch generate-verify-execute https://github.com/midspiral/guardians-lemmascript.git ../guardians-lemmascript \
+            || git clone https://github.com/midspiral/guardians-lemmascript.git ../guardians-lemmascript
 
       - uses: actions/setup-node@v6
         with:
@@ -58,3 +65,4 @@ jobs:
       - run: npm ci
       - run: npm run typecheck
       - run: npm test
+      - run: npm run test:gve
