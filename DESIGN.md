@@ -24,18 +24,18 @@ So this is **not a line-by-line port.** It is a re-architecture around the
 > by the live agent — no adapter layer.
 
 ```
-┌──────────────────────────────────────────────────────────┐
+┌───────────────────────────────────────────────────────────┐
 │  Unverified shell (full TypeScript, runs the agent)       │
 │    cli.ts · agent.ts (stream loop) · providers/* · tools/*│
 │    terminal UI · subprocess · network                     │
-│                                                            │
-│    ┌────────────────────────────────────────────────┐    │
+│                                                           │
+│    ┌─────────────────────────────────────────────────┐    │
 │    │  Verified core (//@ annotations + Dafny proofs) │    │
 │    │    permissions.ts   — the access decision       │    │
 │    │    transcript.ts    — tool-call/result protocol │    │
-│    │    hooks.ts         — config/hook merge          │    │
-│    └────────────────────────────────────────────────┘    │
-└──────────────────────────────────────────────────────────┘
+│    │    hooks.ts         — config/hook merge         │    │
+│    └─────────────────────────────────────────────────┘    │
+└───────────────────────────────────────────────────────────┘
 ```
 
 The shell *calls into* the verified core for every decision that matters: it gates
