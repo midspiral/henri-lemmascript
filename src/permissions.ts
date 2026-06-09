@@ -115,3 +115,88 @@ export function decide(st: PermState, cwd: string[], req: Req): Outcome {
   if (st.rejectPrompts) return "Deny";
   return "Prompt";
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Verified properties, surfaced as theorems. Each //@ ensures states a property;
+// the proof is the generated `_ensures` lemma body in permissions.dfy. P1
+// (soundness) is the ensures already on decide() above — it ties decide()==="Allow"
+// to isAllowed(), so the containment/monotonicity theorems below are phrased over
+// the isAllowed() predicate directly. State-update properties are phrased
+// relationally (a second state `st2` with field-equality / subset requires)
+// because //@ specs cannot construct an update.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// P2 containment (the headline). A path-tool call that is justified — no blanket
+// allow, no autoAllow, no explicit per-path grant — must resolve INSIDE cwd. So
+// auto-allow-in-cwd can never reach outside the working directory.
+export function autoGrantImpliesWithin(st: PermState, cwd: string[], req: Req): boolean {
+  //@ verify
+  //@ requires req.kind === "path"
+  //@ requires !st.allowAll
+  //@ requires !st.autoAllow.has(req.tool)
+  //@ requires !pathGranted(st.allowedPaths, req.tool, resolvePath(cwd, req.segs, req.absolute))
+  //@ requires isAllowed(st, cwd, req)
+  //@ ensures isWithin(cwd, resolvePath(cwd, req.segs, req.absolute))
+  return true;
+}
+
+// P2 dual — a path that escapes cwd, with no other grant, is never justified
+// (so decide() can never auto-Allow it).
+export function noEscape(st: PermState, cwd: string[], req: Req): boolean {
+  //@ verify
+  //@ requires req.kind === "path"
+  //@ requires !st.allowAll
+  //@ requires !st.autoAllow.has(req.tool)
+  //@ requires !pathGranted(st.allowedPaths, req.tool, resolvePath(cwd, req.segs, req.absolute))
+  //@ requires !isWithin(cwd, resolvePath(cwd, req.segs, req.absolute))
+  //@ ensures !isAllowed(st, cwd, req)
+  return true;
+}
+
+// P3 monotonicity — growing any of the grant SETS never revokes a justification.
+// st2 dominates st on every grant set (autoAllow, autoAllowCwd, allowedTools,
+// allowedBashCommands all ⊇ st's) with allowAll and the per-path grants
+// unchanged; then a prior justification still holds. This single fact is what
+// "adding a session grant / a hook's auto-allow can only loosen, never tighten"
+// rests on — and what hooks.dfy's H4 link composes with (mergePerms only grows
+// autoAllow/autoAllowCwd). The per-path-grant case (appending to allowedPaths)
+// is P3_GrantPathMonotone in permissions.dfy: its statement needs list append,
+// which //@ specs cannot express, so it stays a Dafny lemma.
+export function grantMonotone(st: PermState, st2: PermState, cwd: string[], req: Req): boolean {
+  //@ verify
+  //@ requires st2.allowAll === st.allowAll
+  //@ requires st2.allowedPaths === st.allowedPaths
+  //@ requires st.autoAllow <= st2.autoAllow
+  //@ requires st.autoAllowCwd <= st2.autoAllowCwd
+  //@ requires st.allowedTools <= st2.allowedTools
+  //@ requires st.allowedBashCommands <= st2.allowedBashCommands
+  //@ requires isAllowed(st, cwd, req)
+  //@ ensures isAllowed(st2, cwd, req)
+  return true;
+}
+
+// P3 corollary — allow-all justifies everything.
+export function allowAllGrantsEverything(st: PermState, cwd: string[], req: Req): boolean {
+  //@ verify
+  //@ requires st.allowAll
+  //@ ensures isAllowed(st, cwd, req)
+  return true;
+}
+
+// P4 reject-safe — enabling rejectPrompts only ever rewrites Prompt → Deny: the
+// outcome is never Prompt, and it is Allow exactly when the unmodified state
+// would Allow (rejectPrompts changes no justification). st2 is st with
+// rejectPrompts on, everything else equal; \result is decide() under st2.
+export function rejectIsDenyOnly(st: PermState, st2: PermState, cwd: string[], req: Req): Outcome {
+  //@ verify
+  //@ requires st2.rejectPrompts
+  //@ requires st2.allowAll === st.allowAll
+  //@ requires st2.autoAllow === st.autoAllow
+  //@ requires st2.autoAllowCwd === st.autoAllowCwd
+  //@ requires st2.allowedTools === st.allowedTools
+  //@ requires st2.allowedBashCommands === st.allowedBashCommands
+  //@ requires st2.allowedPaths === st.allowedPaths
+  //@ ensures (\result === "Allow") === isAllowed(st, cwd, req)
+  //@ ensures \result !== "Prompt"
+  return decide(st2, cwd, req);
+}

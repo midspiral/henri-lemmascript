@@ -69,3 +69,38 @@ export function execOk(steps: EStep[], bound: string[]): boolean {
   if (!allBound(steps[0].reads, bound)) return false;
   return execOk(steps.slice(1), bound.concat(steps[0].bind));
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The two theorems, surfaced. Each //@ ensures states the property; the proof is
+// the generated `_ensures` lemma body in exec_core.dfy. The supporting induction
+// lemmas (containsConcat, allBoundConcat, strengthenGen) stay in exec_core.dfy —
+// their statements are about appending to the bound set, which //@ specs can't
+// write.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** The two-step forward-ref plan: step 0 READS `x`, step 1 BINDS `x` — so the
+ *  read precedes the bind (the witness the executor must reject). */
+export function forwardRefPlan(): EStep[] {
+  //@ verify
+  return [{ reads: ["x"], bind: [] }, { reads: [], bind: ["x"] }];
+}
+
+// forwardRefGap — the old all-binds check ACCEPTS a forward-ref plan that
+// in-order execution REJECTS. So checking refs against the full bind set
+// (forward included) is unsound; the witness proves the gap is real.
+export function forwardRefGap(): boolean {
+  //@ verify
+  //@ ensures okAllBinds(forwardRefPlan()) === true
+  //@ ensures execOk(forwardRefPlan(), []) === false
+  return true;
+}
+
+// fixIsStrengthening — the fixed in-order check is a strengthening of the old
+// one: any plan execution accepts, the all-binds check also accepts. So swapping
+// in the in-order check only ever removes the unsafe forward-ref plans, never a
+// safe one.
+export function fixIsStrengthening(steps: EStep[]): boolean {
+  //@ verify
+  //@ ensures execOk(steps, []) ==> okAllBinds(steps)
+  return true;
+}

@@ -86,44 +86,121 @@ lemma decide_ensures(st: PermState, cwd: seq<string>, req: Req)
 {
 }
 
+function autoGrantImpliesWithin(st: PermState, cwd: seq<string>, req: Req): bool
+  requires req.path?
+  requires !(st.allowAll)
+  requires !((req.tool in st.autoAllow))
+  requires !(pathGranted(st.allowedPaths, req.tool, resolvePath(cwd, req.segs, req.absolute)))
+  requires isAllowed(st, cwd, req)
+{
+  true
+}
+
+lemma autoGrantImpliesWithin_ensures(st: PermState, cwd: seq<string>, req: Req)
+  requires req.path?
+  requires !(st.allowAll)
+  requires !((req.tool in st.autoAllow))
+  requires !(pathGranted(st.allowedPaths, req.tool, resolvePath(cwd, req.segs, req.absolute)))
+  requires isAllowed(st, cwd, req)
+  ensures isWithin(cwd, resolvePath(cwd, req.segs, req.absolute))
+{
+}
+
+function noEscape(st: PermState, cwd: seq<string>, req: Req): bool
+  requires req.path?
+  requires !(st.allowAll)
+  requires !((req.tool in st.autoAllow))
+  requires !(pathGranted(st.allowedPaths, req.tool, resolvePath(cwd, req.segs, req.absolute)))
+  requires !(isWithin(cwd, resolvePath(cwd, req.segs, req.absolute)))
+{
+  true
+}
+
+lemma noEscape_ensures(st: PermState, cwd: seq<string>, req: Req)
+  requires req.path?
+  requires !(st.allowAll)
+  requires !((req.tool in st.autoAllow))
+  requires !(pathGranted(st.allowedPaths, req.tool, resolvePath(cwd, req.segs, req.absolute)))
+  requires !(isWithin(cwd, resolvePath(cwd, req.segs, req.absolute)))
+  ensures !(isAllowed(st, cwd, req))
+{
+}
+
+function grantMonotone(st: PermState, st2: PermState, cwd: seq<string>, req: Req): bool
+  requires (st2.allowAll == st.allowAll)
+  requires (st2.allowedPaths == st.allowedPaths)
+  requires (st.autoAllow <= st2.autoAllow)
+  requires (st.autoAllowCwd <= st2.autoAllowCwd)
+  requires (st.allowedTools <= st2.allowedTools)
+  requires (st.allowedBashCommands <= st2.allowedBashCommands)
+  requires isAllowed(st, cwd, req)
+{
+  true
+}
+
+lemma grantMonotone_ensures(st: PermState, st2: PermState, cwd: seq<string>, req: Req)
+  requires (st2.allowAll == st.allowAll)
+  requires (st2.allowedPaths == st.allowedPaths)
+  requires (st.autoAllow <= st2.autoAllow)
+  requires (st.autoAllowCwd <= st2.autoAllowCwd)
+  requires (st.allowedTools <= st2.allowedTools)
+  requires (st.allowedBashCommands <= st2.allowedBashCommands)
+  requires isAllowed(st, cwd, req)
+  ensures isAllowed(st2, cwd, req)
+{
+}
+
+function allowAllGrantsEverything(st: PermState, cwd: seq<string>, req: Req): bool
+  requires st.allowAll
+{
+  true
+}
+
+lemma allowAllGrantsEverything_ensures(st: PermState, cwd: seq<string>, req: Req)
+  requires st.allowAll
+  ensures isAllowed(st, cwd, req)
+{
+}
+
+function rejectIsDenyOnly(st: PermState, st2: PermState, cwd: seq<string>, req: Req): Outcome
+  requires st2.rejectPrompts
+  requires (st2.allowAll == st.allowAll)
+  requires (st2.autoAllow == st.autoAllow)
+  requires (st2.autoAllowCwd == st.autoAllowCwd)
+  requires (st2.allowedTools == st.allowedTools)
+  requires (st2.allowedBashCommands == st.allowedBashCommands)
+  requires (st2.allowedPaths == st.allowedPaths)
+{
+  decide(st2, cwd, req)
+}
+
+lemma rejectIsDenyOnly_ensures(st: PermState, st2: PermState, cwd: seq<string>, req: Req)
+  requires st2.rejectPrompts
+  requires (st2.allowAll == st.allowAll)
+  requires (st2.autoAllow == st.autoAllow)
+  requires (st2.autoAllowCwd == st.autoAllowCwd)
+  requires (st2.allowedTools == st.allowedTools)
+  requires (st2.allowedBashCommands == st.allowedBashCommands)
+  requires (st2.allowedPaths == st.allowedPaths)
+  ensures (rejectIsDenyOnly(st, st2, cwd, req).Allow? == isAllowed(st, cwd, req))
+  ensures (!rejectIsDenyOnly(st, st2, cwd, req).Prompt?)
+{
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
-// Proof additions (added in .dfy, additions-only over .dfy.gen).
-// P1 soundness is decide_ensures above (auto-discharged).
+// .dfy-only helpers — statements //@ specs cannot express (list append, {:fuel}).
+// The TS carriers above state the headline properties; these reach the rest.
 // ═══════════════════════════════════════════════════════════════════════════
 
-// ── P2: path-traversal containment (the headline) ───────────────────────────
-
-// Concrete witness: ../../x from cwd a/b resolves to [x], which is outside a/b.
+// Concrete witness for P2: ../../x from cwd a/b resolves to [x], outside a/b —
+// so the escape that noEscape rules out is genuinely reachable.
 lemma {:fuel normalizeFrom, 7, 8} P2_EscapeWitness()
   ensures resolvePath(["a", "b"], ["..", "..", "x"], false) == ["x"]
   ensures !isWithin(["a", "b"], resolvePath(["a", "b"], ["..", "..", "x"], false))
 {
 }
 
-// Any auto-grant of a path tool — with no blanket allow, no autoAllow, and no
-// explicit per-path grant — implies the resolved path is contained within cwd.
-// i.e. auto-allow-in-cwd can NEVER reach outside cwd.
-lemma P2_AutoGrantImpliesWithin(st: PermState, cwd: seq<string>, tool: string, segs: seq<string>, absolute: bool)
-  requires !st.allowAll
-  requires tool !in st.autoAllow
-  requires !pathGranted(st.allowedPaths, tool, resolvePath(cwd, segs, absolute))
-  requires decide(st, cwd, path(tool, segs, absolute)).Allow?
-  ensures isWithin(cwd, resolvePath(cwd, segs, absolute))
-{
-}
-
-// Dual: a path that escapes cwd, with no other grant, is never allowed.
-lemma P2_NoEscape(st: PermState, cwd: seq<string>, tool: string, segs: seq<string>, absolute: bool)
-  requires !st.allowAll
-  requires tool !in st.autoAllow
-  requires !pathGranted(st.allowedPaths, tool, resolvePath(cwd, segs, absolute))
-  requires !isWithin(cwd, resolvePath(cwd, segs, absolute))
-  ensures decide(st, cwd, path(tool, segs, absolute)) != Allow
-{
-}
-
-// ── P3: grant monotonicity ───────────────────────────────────────────────────
-
+// Appending a grant preserves existing per-path coverage (needs list append).
 lemma PathGrantedAppendMonotone(grants: seq<PathGrant>, g: PathGrant, tool: string, resolved: seq<string>)
   ensures pathGranted(grants, tool, resolved) ==> pathGranted(grants + [g], tool, resolved)
   decreases |grants|
@@ -136,14 +213,8 @@ lemma PathGrantedAppendMonotone(grants: seq<PathGrant>, g: PathGrant, tool: stri
   }
 }
 
-// Adding an exact-command grant never revokes an existing Allow.
-lemma P3_GrantBashMonotone(st: PermState, cwd: seq<string>, req: Req, cmd: string)
-  requires decide(st, cwd, req).Allow?
-  ensures decide(st.(allowedBashCommands := st.allowedBashCommands + {cmd}), cwd, req).Allow?
-{
-}
-
-// Adding a per-path grant never revokes an existing Allow.
+// P3, per-path case: adding a per-path grant never revokes an existing Allow.
+// (The set-channel cases are grantMonotone above; this one needs list append.)
 lemma P3_GrantPathMonotone(st: PermState, cwd: seq<string>, req: Req, g: PathGrant)
   requires decide(st, cwd, req).Allow?
   ensures decide(st.(allowedPaths := st.allowedPaths + [g]), cwd, req).Allow?
@@ -154,36 +225,4 @@ lemma P3_GrantPathMonotone(st: PermState, cwd: seq<string>, req: Req, g: PathGra
     case bash(_) =>
     case other(_) =>
   }
-}
-
-// Enabling allow-all grants everything.
-lemma P3_AllowAllGrantsEverything(st: PermState, cwd: seq<string>, req: Req)
-  ensures decide(st.(allowAll := true), cwd, req).Allow?
-{
-}
-
-// ── P4: rejectPrompts is deny-only ───────────────────────────────────────────
-
-// Enabling rejectPrompts never creates a new Allow (it only rewrites Prompt -> Deny).
-lemma P4_RejectIsDenyOnly(st: PermState, cwd: seq<string>, req: Req)
-  ensures decide(st.(rejectPrompts := true), cwd, req).Allow? == decide(st, cwd, req).Allow?
-  ensures !decide(st.(rejectPrompts := true), cwd, req).Prompt?
-{
-}
-
-// ── H4 link (composes with hooks.dfy's H4_GatherGrows) ───────────────────────
-
-// Growing the auto-allow sets never revokes an existing Allow. mergePerms only
-// ever grows autoAllow/autoAllowCwd (hooks.dfy: H4_GatherGrows), so by this
-// lemma adding hooks can never reduce what decide() permits.
-lemma P3_GrowAutoSetsMonotone(st: PermState, st': PermState, cwd: seq<string>, req: Req)
-  requires st.autoAllow <= st'.autoAllow
-  requires st.autoAllowCwd <= st'.autoAllowCwd
-  requires st'.allowedTools == st.allowedTools
-  requires st'.allowedBashCommands == st.allowedBashCommands
-  requires st'.allowedPaths == st.allowedPaths
-  requires st'.allowAll == st.allowAll
-  requires decide(st, cwd, req).Allow?
-  ensures decide(st', cwd, req).Allow?
-{
 }

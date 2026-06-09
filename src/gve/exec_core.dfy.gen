@@ -42,3 +42,29 @@ function execOk(steps: seq<EStep>, bound: seq<string>): bool
 {
   ((|steps| == 0) || (if !(allBound(steps[0].reads_, bound)) then false else execOk(steps[1..], (bound + steps[0].bind))))
 }
+
+function forwardRefPlan(): seq<EStep>
+{
+  [EStep(["x"], []), EStep([], ["x"])]
+}
+
+function forwardRefGap(): bool
+{
+  true
+}
+
+lemma forwardRefGap_ensures()
+  ensures (okAllBinds(forwardRefPlan()) == true)
+  ensures (execOk(forwardRefPlan(), []) == false)
+{
+}
+
+function fixIsStrengthening(steps: seq<EStep>): bool
+{
+  true
+}
+
+lemma fixIsStrengthening_ensures(steps: seq<EStep>)
+  ensures (execOk(steps, []) ==> okAllBinds(steps))
+{
+}

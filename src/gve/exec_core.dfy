@@ -43,7 +43,45 @@ function execOk(steps: seq<EStep>, bound: seq<string>): bool
   ((|steps| == 0) || (if !(allBound(steps[0].reads_, bound)) then false else execOk(steps[1..], (bound + steps[0].bind))))
 }
 
-// ── hand-written theorems + supporting lemmas (proofs; not in the .ts, as in edit.dfy) ──
+// ═══════════════════════════════════════════════════════════════════════════
+// The two theorems (generated from exec_core.ts) + their proofs, plus the
+// append-based supporting lemmas (which //@ specs cannot state).
+// ═══════════════════════════════════════════════════════════════════════════
+
+function forwardRefPlan(): seq<EStep>
+{
+  [EStep(["x"], []), EStep([], ["x"])]
+}
+
+function forwardRefGap(): bool
+{
+  true
+}
+
+// forwardRefGap — the old all-binds check ACCEPTS a forward-ref plan that
+// in-order execution REJECTS (the all-binds shortcut is unsound).
+lemma forwardRefGap_ensures()
+  ensures (okAllBinds(forwardRefPlan()) == true)
+  ensures (execOk(forwardRefPlan(), []) == false)
+{
+  assert forwardRefPlan() == [EStep(["x"], []), EStep([], ["x"])];
+}
+
+function fixIsStrengthening(steps: seq<EStep>): bool
+{
+  true
+}
+
+// fixIsStrengthening — the fixed in-order check is a strengthening of the old
+// all-binds check: execOk ==> okAllBinds (it only removes unsafe forward-refs).
+lemma fixIsStrengthening_ensures(steps: seq<EStep>)
+  ensures (execOk(steps, []) ==> okAllBinds(steps))
+{
+  strengthenGen(steps, []);
+  assert [] + allBinds(steps) == allBinds(steps);
+}
+
+// ── append-based supporting lemmas (kept in .dfy: statements need concat) ──────
 
 // Membership is preserved by appending more names.
 lemma containsConcat(bound: seq<string>, more: seq<string>, y: string)
@@ -78,19 +116,4 @@ lemma strengthenGen(steps: seq<EStep>, bound: seq<string>)
     allBoundConcat(s.reads_, bound, allBinds(steps));
     strengthenGen(rest, bound + s.bind);
   }
-}
-
-// THEOREM — the old all-binds check passes a forward-ref plan that execution rejects.
-lemma forwardRefGap()
-  ensures okAllBinds([EStep(["x"], []), EStep([], ["x"])]) == true
-  ensures execOk([EStep(["x"], []), EStep([], ["x"])], []) == false
-{
-}
-
-// THEOREM — the fixed (in-order) check is a strengthening: execOk ==> okAllBinds.
-lemma fixIsStrengthening(steps: seq<EStep>)
-  ensures execOk(steps, []) ==> okAllBinds(steps)
-{
-  strengthenGen(steps, []);
-  assert [] + allBinds(steps) == allBinds(steps);
 }
