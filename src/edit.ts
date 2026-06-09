@@ -82,3 +82,31 @@ export function editFile(content: string[], old: string[], all: boolean): Edit {
   if (manyOcc(content, old) && !all) return { kind: "Ambiguous" };
   return { kind: "Replaced" };
 }
+
+// ── Splice faithfulness, surfaced as theorems ───────────────────────────────
+// These are pure carriers: the statement lives here (//@ ensures), the inductive
+// proof lives in edit.dfy as the generated `_ensures` lemma body. A reader of
+// this file sees exactly what is guaranteed about the splice; the .dfy holds how.
+
+/** E2 — replacing text that does not occur leaves the content unchanged. */
+export function noMatchIdentity(hay: string[], old: string[], repl: string[]): boolean {
+  //@ verify
+  //@ requires !occurs(hay, old)
+  //@ ensures replaceFirst(hay, old, repl) === hay
+  return true;
+}
+
+/** E3 — replacing `old` with `old` is a no-op: the splice touches exactly the matched span. */
+export function spliceNoop(hay: string[], old: string[]): boolean {
+  //@ verify
+  //@ ensures replaceFirst(hay, old, old) === hay
+  return true;
+}
+
+/** E4 — a single splice changes the length by exactly repl.length - old.length. */
+export function spliceLength(hay: string[], old: string[], repl: string[]): boolean {
+  //@ verify
+  //@ requires occurs(hay, old)
+  //@ ensures replaceFirst(hay, old, repl).length === hay.length - old.length + repl.length
+  return true;
+}

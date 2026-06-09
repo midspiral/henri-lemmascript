@@ -77,3 +77,104 @@ function gather(base: seq<string>, parts: seq<seq<string>>): seq<string>
 {
   (base + flatten(parts))
 }
+
+function removedExcluded(defaults: seq<Tool>, hooks: seq<Hook>, name: string): bool
+  requires contains(allRemoves(hooks), name)
+{
+  true
+}
+
+lemma removedExcluded_ensures(defaults: seq<Tool>, hooks: seq<Hook>, name: string)
+  requires contains(allRemoves(hooks), name)
+  ensures !(hasName(mergeTools(defaults, hooks), name))
+{
+}
+
+function distinctMergedNames(defaults: seq<Tool>, hooks: seq<Hook>): bool
+{
+  true
+}
+
+lemma distinctMergedNames_ensures(defaults: seq<Tool>, hooks: seq<Hook>)
+  ensures forall i: int, j: int :: ((0 <= i) ==> (i < j) ==> (j < |mergeTools(defaults, hooks)|) ==> (mergeTools(defaults, hooks)[i].name != mergeTools(defaults, hooks)[j].name))
+{
+}
+
+function coverage(defaults: seq<Tool>, hooks: seq<Hook>, name: string): bool
+  requires hasName(allTools(defaults, hooks), name)
+  requires !(contains(allRemoves(hooks), name))
+{
+  true
+}
+
+lemma coverage_ensures(defaults: seq<Tool>, hooks: seq<Hook>, name: string)
+  requires hasName(allTools(defaults, hooks), name)
+  requires !(contains(allRemoves(hooks), name))
+  ensures hasName(mergeTools(defaults, hooks), name)
+{
+}
+
+function gatherMembership(base: seq<string>, parts: seq<seq<string>>, x: string): bool
+{
+  true
+}
+
+lemma gatherMembership_ensures(base: seq<string>, parts: seq<seq<string>>, x: string)
+  ensures (contains(gather(base, parts), x) == (contains(base, x) || exists i: int :: (((0 <= i) && (i < |parts|)) && contains(parts[i], x))))
+{
+}
+
+function gatherGrows(base: seq<string>, parts: seq<seq<string>>, x: string): bool
+  requires contains(base, x)
+{
+  true
+}
+
+lemma gatherGrows_ensures(base: seq<string>, parts: seq<seq<string>>, x: string)
+  requires contains(base, x)
+  ensures contains(gather(base, parts), x)
+{
+}
+
+function containsCorrect(xs: seq<string>, x: string): bool
+  decreases |xs|
+{
+  true
+}
+
+lemma containsCorrect_ensures(xs: seq<string>, x: string)
+  ensures (contains(xs, x) == (x in xs))
+{
+}
+
+function hasNameCorrect(tools: seq<Tool>, name: string): bool
+  decreases |tools|
+{
+  true
+}
+
+lemma hasNameCorrect_ensures(tools: seq<Tool>, name: string)
+  ensures (hasName(tools, name) == exists i: int :: (((0 <= i) && (i < |tools|)) && (tools[i].name == name)))
+{
+}
+
+function flattenMembership(parts: seq<seq<string>>, x: string): bool
+  decreases |parts|
+{
+  true
+}
+
+lemma flattenMembership_ensures(parts: seq<seq<string>>, x: string)
+  ensures ((x in flatten(parts)) == exists i: int :: (((0 <= i) && (i < |parts|)) && (x in parts[i])))
+{
+}
+
+function gatherCommutes(base: seq<string>, p: seq<string>, q: seq<string>, x: string): bool
+{
+  true
+}
+
+lemma gatherCommutes_ensures(base: seq<string>, p: seq<string>, q: seq<string>, x: string)
+  ensures ((x in gather(base, [p, q])) == (x in gather(base, [q, p])))
+{
+}

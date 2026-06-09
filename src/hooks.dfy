@@ -79,32 +79,177 @@ function gather(base: seq<string>, parts: seq<seq<string>>): seq<string>
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Proof additions (added in .dfy, additions-only over .dfy.gen).
-// Properties are stated over the REAL mergeTools(seq<Tool>, seq<Hook>).
+// Surfaced properties (generated from hooks.ts) + their proofs, over the REAL
+// mergeTools / gather. A few append/ghost-predicate induction lemmas follow.
 // ═══════════════════════════════════════════════════════════════════════════
 
-predicate distinctNames(ts: seq<Tool>) {
-  forall i, j :: 0 <= i < j < |ts| ==> ts[i].name != ts[j].name
+function removedExcluded(defaults: seq<Tool>, hooks: seq<Hook>, name: string): bool
+  requires contains(allRemoves(hooks), name)
+{
+  true
 }
 
-lemma ContainsCorrect(xs: seq<string>, x: string)
-  ensures contains(xs, x) <==> x in xs
+// H1 removal — a removed tool name never survives the merge.
+lemma removedExcluded_ensures(defaults: seq<Tool>, hooks: seq<Hook>, name: string)
+  requires contains(allRemoves(hooks), name)
+  ensures !(hasName(mergeTools(defaults, hooks), name))
+{
+  if hasName(mergeTools(defaults, hooks), name) {
+    hasNameCorrect_ensures(mergeTools(defaults, hooks), name);
+    var i :| 0 <= i < |mergeTools(defaults, hooks)| && mergeTools(defaults, hooks)[i].name == name;
+    var t := mergeTools(defaults, hooks)[i];
+    assert t in mergeTools(defaults, hooks);
+    assert mergeTools(defaults, hooks) == dedupTools([], allTools(defaults, hooks), allRemoves(hooks));
+    DedupToolsExcludesRemoved([], allTools(defaults, hooks), allRemoves(hooks), t);
+  }
+}
+
+function distinctMergedNames(defaults: seq<Tool>, hooks: seq<Hook>): bool
+{
+  true
+}
+
+// H2 uniqueness (the dedup fix) — merged tool names are pairwise distinct.
+lemma distinctMergedNames_ensures(defaults: seq<Tool>, hooks: seq<Hook>)
+  ensures forall i: int, j: int :: ((0 <= i) ==> (i < j) ==> (j < |mergeTools(defaults, hooks)|) ==> (mergeTools(defaults, hooks)[i].name != mergeTools(defaults, hooks)[j].name))
+{
+  assert mergeTools(defaults, hooks) == dedupTools([], allTools(defaults, hooks), allRemoves(hooks));
+  DedupToolsDistinct([], allTools(defaults, hooks), allRemoves(hooks));
+  assert distinctNames(mergeTools(defaults, hooks));
+}
+
+function coverage(defaults: seq<Tool>, hooks: seq<Hook>, name: string): bool
+  requires hasName(allTools(defaults, hooks), name)
+  requires !(contains(allRemoves(hooks), name))
+{
+  true
+}
+
+// coverage — a kept (present, non-removed) name is preserved by the merge.
+lemma coverage_ensures(defaults: seq<Tool>, hooks: seq<Hook>, name: string)
+  requires hasName(allTools(defaults, hooks), name)
+  requires !(contains(allRemoves(hooks), name))
+  ensures hasName(mergeTools(defaults, hooks), name)
+{
+  DedupToolsCovers([], allTools(defaults, hooks), allRemoves(hooks), name);
+}
+
+function gatherMembership(base: seq<string>, parts: seq<seq<string>>, x: string): bool
+{
+  true
+}
+
+// H3 order-independence — gather membership is exactly base ∪ contributions.
+lemma gatherMembership_ensures(base: seq<string>, parts: seq<seq<string>>, x: string)
+  ensures (contains(gather(base, parts), x) == (contains(base, x) || exists i: int :: (((0 <= i) && (i < |parts|)) && contains(parts[i], x))))
+{
+  flattenMembership_ensures(parts, x);
+  containsCorrect_ensures(gather(base, parts), x);
+  containsCorrect_ensures(base, x);
+  forall i | 0 <= i < |parts|
+    ensures contains(parts[i], x) <==> x in parts[i]
+  {
+    containsCorrect_ensures(parts[i], x);
+  }
+}
+
+function gatherGrows(base: seq<string>, parts: seq<seq<string>>, x: string): bool
+  requires contains(base, x)
+{
+  true
+}
+
+// H4 additivity — gather only ever grows the base.
+lemma gatherGrows_ensures(base: seq<string>, parts: seq<seq<string>>, x: string)
+  requires contains(base, x)
+  ensures contains(gather(base, parts), x)
+{
+  containsCorrect_ensures(base, x);
+  containsCorrect_ensures(gather(base, parts), x);
+}
+
+function containsCorrect(xs: seq<string>, x: string): bool
+  decreases |xs|
+{
+  true
+}
+
+// `contains` decides string membership exactly.
+lemma containsCorrect_ensures(xs: seq<string>, x: string)
+  ensures (contains(xs, x) == (x in xs))
   decreases |xs|
 {
   if |xs| == 0 {
   } else {
-    ContainsCorrect(xs[1..], x);
+    containsCorrect_ensures(xs[1..], x);
   }
 }
 
-lemma HasNameCorrect(tools: seq<Tool>, name: string)
-  ensures hasName(tools, name) <==> exists i :: 0 <= i < |tools| && tools[i].name == name
+function hasNameCorrect(tools: seq<Tool>, name: string): bool
+  decreases |tools|
+{
+  true
+}
+
+// `hasName` decides name-membership exactly.
+lemma hasNameCorrect_ensures(tools: seq<Tool>, name: string)
+  ensures (hasName(tools, name) == exists i: int :: (((0 <= i) && (i < |tools|)) && (tools[i].name == name)))
   decreases |tools|
 {
   if |tools| == 0 {
   } else {
-    HasNameCorrect(tools[1..], name);
+    hasNameCorrect_ensures(tools[1..], name);
   }
+}
+
+function flattenMembership(parts: seq<seq<string>>, x: string): bool
+  decreases |parts|
+{
+  true
+}
+
+// A name is in the flattened contributions iff it is in some part.
+lemma flattenMembership_ensures(parts: seq<seq<string>>, x: string)
+  ensures ((x in flatten(parts)) == exists i: int :: (((0 <= i) && (i < |parts|)) && (x in parts[i])))
+  decreases |parts|
+{
+  if |parts| == 0 {
+  } else {
+    flattenMembership_ensures(parts[1..], x);
+    if x in flatten(parts) && x !in parts[0] {
+      assert x in flatten(parts[1..]);
+      var j :| 0 <= j < |parts[1..]| && x in parts[1..][j];
+      assert parts[1..][j] == parts[j + 1];
+    }
+    forall i | 1 <= i < |parts| && x in parts[i]
+      ensures x in flatten(parts[1..])
+    {
+      assert parts[1..][i - 1] == parts[i];
+    }
+  }
+}
+
+function gatherCommutes(base: seq<string>, p: seq<string>, q: seq<string>, x: string): bool
+{
+  true
+}
+
+// H3 corollary — swapping two hook groups yields the same gather membership.
+lemma gatherCommutes_ensures(base: seq<string>, p: seq<string>, q: seq<string>, x: string)
+  ensures ((x in gather(base, [p, q])) == (x in gather(base, [q, p])))
+{
+  gatherMembership_ensures(base, [p, q], x);
+  gatherMembership_ensures(base, [q, p], x);
+  containsCorrect_ensures(gather(base, [p, q]), x);
+  containsCorrect_ensures(gather(base, [q, p]), x);
+  assert [p, q][0] == p && [p, q][1] == q;
+  assert [q, p][0] == q && [q, p][1] == p;
+}
+
+// ── append- / ghost-predicate induction lemmas (kept in .dfy) ──────────────────
+
+predicate distinctNames(ts: seq<Tool>) {
+  forall i, j :: 0 <= i < j < |ts| ==> ts[i].name != ts[j].name
 }
 
 lemma HasNameAppend(tools: seq<Tool>, t: Tool, name: string)
@@ -118,8 +263,6 @@ lemma HasNameAppend(tools: seq<Tool>, t: Tool, name: string)
     assert (tools + [t])[1..] == tools[1..] + [t];
   }
 }
-
-// ── H1: no removed name survives the merge ───────────────────────────────────
 
 lemma DedupToolsExcludesRemoved(acc: seq<Tool>, tools: seq<Tool>, removes: seq<string>, t: Tool)
   requires forall u :: u in acc ==> !contains(removes, u.name)
@@ -140,14 +283,6 @@ lemma DedupToolsExcludesRemoved(acc: seq<Tool>, tools: seq<Tool>, removes: seq<s
   }
 }
 
-lemma H1_RemovedExcluded(defaults: seq<Tool>, hooks: seq<Hook>, t: Tool)
-  ensures t in mergeTools(defaults, hooks) ==> !contains(allRemoves(hooks), t.name)
-{
-  DedupToolsExcludesRemoved([], allTools(defaults, hooks), allRemoves(hooks), t);
-}
-
-// ── H2: result tool names are distinct (the dedup fix) ───────────────────────
-
 lemma DedupToolsDistinct(acc: seq<Tool>, tools: seq<Tool>, removes: seq<string>)
   requires distinctNames(acc)
   ensures distinctNames(dedupTools(acc, tools, removes))
@@ -161,20 +296,12 @@ lemma DedupToolsDistinct(acc: seq<Tool>, tools: seq<Tool>, removes: seq<string>)
     } else if hasName(acc, t0.name) {
       DedupToolsDistinct(acc, tools[1..], removes);
     } else {
-      HasNameCorrect(acc, t0.name);
+      hasNameCorrect_ensures(acc, t0.name);
       assert distinctNames(acc + [t0]);
       DedupToolsDistinct(acc + [t0], tools[1..], removes);
     }
   }
 }
-
-lemma H2_DistinctNames(defaults: seq<Tool>, hooks: seq<Hook>)
-  ensures distinctNames(mergeTools(defaults, hooks))
-{
-  DedupToolsDistinct([], allTools(defaults, hooks), allRemoves(hooks));
-}
-
-// ── coverage: a kept (non-removed) name is preserved ─────────────────────────
 
 lemma DedupToolsAccMono(acc: seq<Tool>, tools: seq<Tool>, removes: seq<string>, name: string)
   requires hasName(acc, name)
@@ -214,64 +341,11 @@ lemma DedupToolsCovers(acc: seq<Tool>, tools: seq<Tool>, removes: seq<string>, n
       DedupToolsCovers(acc, tools[1..], removes, name);
     }
   } else if t0.name == name {
-    HasNameCorrect(acc + [t0], name);
+    hasNameCorrect_ensures(acc + [t0], name);
     assert (acc + [t0])[|acc|] == t0;
     DedupToolsAccMono(acc + [t0], tools[1..], removes, name);
   } else {
     assert hasName(tools[1..], name);
     DedupToolsCovers(acc + [t0], tools[1..], removes, name);
   }
-}
-
-lemma Coverage(defaults: seq<Tool>, hooks: seq<Hook>, name: string)
-  requires hasName(allTools(defaults, hooks), name)
-  requires !contains(allRemoves(hooks), name)
-  ensures hasName(mergeTools(defaults, hooks), name)
-{
-  DedupToolsCovers([], allTools(defaults, hooks), allRemoves(hooks), name);
-}
-
-// ── H3 / H4: permission gather (order-independence, additivity) ──────────────
-
-lemma FlattenMembership(parts: seq<seq<string>>, x: string)
-  ensures x in flatten(parts) <==> exists i :: 0 <= i < |parts| && x in parts[i]
-  decreases |parts|
-{
-  if |parts| == 0 {
-  } else {
-    FlattenMembership(parts[1..], x);
-    if x in flatten(parts) && x !in parts[0] {
-      assert x in flatten(parts[1..]);
-      var j :| 0 <= j < |parts[1..]| && x in parts[1..][j];
-      assert parts[1..][j] == parts[j + 1];
-    }
-    forall i | 1 <= i < |parts| && x in parts[i]
-      ensures x in flatten(parts[1..])
-    {
-      assert parts[1..][i - 1] == parts[i];
-    }
-  }
-}
-
-// H3: gather membership = base ∪ contributions — independent of hook order.
-lemma H3_GatherMembership(base: seq<string>, parts: seq<seq<string>>, x: string)
-  ensures x in gather(base, parts) <==> (x in base || exists i :: 0 <= i < |parts| && x in parts[i])
-{
-  FlattenMembership(parts, x);
-}
-
-// H4: gather only grows the base set (additivity).
-lemma H4_GatherGrows(base: seq<string>, parts: seq<seq<string>>, x: string)
-  ensures x in base ==> x in gather(base, parts)
-{
-}
-
-// H3 corollary: swapping two hook groups yields the same membership.
-lemma H3_Commutes(base: seq<string>, p: seq<string>, q: seq<string>, x: string)
-  ensures (x in gather(base, [p, q])) <==> (x in gather(base, [q, p]))
-{
-  H3_GatherMembership(base, [p, q], x);
-  H3_GatherMembership(base, [q, p], x);
-  assert [p, q][0] == p && [p, q][1] == q;
-  assert [q, p][0] == q && [q, p][1] == p;
 }

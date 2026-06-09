@@ -8,80 +8,103 @@ datatype PermState = PermState(autoAllow: set<string>, autoAllowCwd: set<string>
 
 datatype Req = bash(command: string) | path(tool: string, segs: seq<string>, absolute: bool) | other(tool: string)
 
-function seqEq(a: seq<string>, b: seq<string>): bool
+function autoGrantImpliesWithin(st: PermState, cwd: seq<string>, req: Req): bool
+  requires req.path?
+  requires !(st.allowAll)
+  requires !((req.tool in st.autoAllow))
+  requires !(pathGranted(st.allowedPaths, req.tool, resolvePath(cwd, req.segs, req.absolute)))
+  requires isAllowed(st, cwd, req)
 {
-  if (|a| != |b|) then
-    false
-  else
-    ((|a| == 0) || (if (a[0] != b[0]) then false else seqEq(a[1..], b[1..])))
+  true
 }
 
-function normalizeFrom(acc: seq<string>, segs: seq<string>): seq<string>
-  decreases |segs|
+lemma autoGrantImpliesWithin_ensures(st: PermState, cwd: seq<string>, req: Req)
+  requires req.path?
+  requires !(st.allowAll)
+  requires !((req.tool in st.autoAllow))
+  requires !(pathGranted(st.allowedPaths, req.tool, resolvePath(cwd, req.segs, req.absolute)))
+  requires isAllowed(st, cwd, req)
+  ensures isWithin(cwd, resolvePath(cwd, req.segs, req.absolute))
 {
-  if (|segs| == 0) then
-    acc
-  else
-    var s := segs[0];
-    var rest := segs[1..];
-    if (s == "..") then
-      normalizeFrom(acc[0..(if (|acc| > 0) then (|acc| - 1) else 0)], rest)
-    else
-      if ((s == "") || (s == ".")) then
-        normalizeFrom(acc, rest)
-      else
-        normalizeFrom((acc + [s]), rest)
 }
 
-function normalize(segs: seq<string>): seq<string>
+function noEscape(st: PermState, cwd: seq<string>, req: Req): bool
+  requires req.path?
+  requires !(st.allowAll)
+  requires !((req.tool in st.autoAllow))
+  requires !(pathGranted(st.allowedPaths, req.tool, resolvePath(cwd, req.segs, req.absolute)))
+  requires !(isWithin(cwd, resolvePath(cwd, req.segs, req.absolute)))
 {
-  normalizeFrom([], segs)
+  true
 }
 
-function resolvePath(cwd: seq<string>, segs: seq<string>, absolute: bool): seq<string>
+lemma noEscape_ensures(st: PermState, cwd: seq<string>, req: Req)
+  requires req.path?
+  requires !(st.allowAll)
+  requires !((req.tool in st.autoAllow))
+  requires !(pathGranted(st.allowedPaths, req.tool, resolvePath(cwd, req.segs, req.absolute)))
+  requires !(isWithin(cwd, resolvePath(cwd, req.segs, req.absolute)))
+  ensures !(isAllowed(st, cwd, req))
 {
-  if absolute then
-    normalize(segs)
-  else
-    normalize((cwd + segs))
 }
 
-function isPrefix(base: seq<string>, p: seq<string>): bool
+function grantMonotone(st: PermState, st2: PermState, cwd: seq<string>, req: Req): bool
+  requires (st2.allowAll == st.allowAll)
+  requires (st2.allowedPaths == st.allowedPaths)
+  requires (st.autoAllow <= st2.autoAllow)
+  requires (st.autoAllowCwd <= st2.autoAllowCwd)
+  requires (st.allowedTools <= st2.allowedTools)
+  requires (st.allowedBashCommands <= st2.allowedBashCommands)
+  requires isAllowed(st, cwd, req)
 {
-  ((|base| == 0) || (if (|p| == 0) then false else (if (base[0] != p[0]) then false else isPrefix(base[1..], p[1..]))))
+  true
 }
 
-function isWithin(base: seq<string>, p: seq<string>): bool
+lemma grantMonotone_ensures(st: PermState, st2: PermState, cwd: seq<string>, req: Req)
+  requires (st2.allowAll == st.allowAll)
+  requires (st2.allowedPaths == st.allowedPaths)
+  requires (st.autoAllow <= st2.autoAllow)
+  requires (st.autoAllowCwd <= st2.autoAllowCwd)
+  requires (st.allowedTools <= st2.allowedTools)
+  requires (st.allowedBashCommands <= st2.allowedBashCommands)
+  requires isAllowed(st, cwd, req)
+  ensures isAllowed(st2, cwd, req)
 {
-  isPrefix(base, p)
 }
 
-function pathGranted(grants: seq<PathGrant>, tool: string, resolved: seq<string>): bool
+function allowAllGrantsEverything(st: PermState, cwd: seq<string>, req: Req): bool
+  requires st.allowAll
 {
-  if (|grants| == 0) then
-    false
-  else
-    var g := grants[0];
-    (((g.tool == tool) && seqEq(g.segs, resolved)) || pathGranted(grants[1..], tool, resolved))
+  true
 }
 
-function isAllowed(st: PermState, cwd: seq<string>, req: Req): bool
+lemma allowAllGrantsEverything_ensures(st: PermState, cwd: seq<string>, req: Req)
+  requires st.allowAll
+  ensures isAllowed(st, cwd, req)
 {
-  (st.allowAll || (match req { case bash(i_req_command) => (("bash" in st.autoAllow) || (i_req_command in st.allowedBashCommands)) case path(i_req_tool, i_req_segs, i_req_absolute) => ((i_req_tool in st.autoAllow) || (var resolved := resolvePath(cwd, i_req_segs, i_req_absolute); (pathGranted(st.allowedPaths, i_req_tool, resolved) || ((i_req_tool in st.autoAllowCwd) && isWithin(cwd, resolved))))) case other(i_req_tool) => ((i_req_tool in st.autoAllow) || (i_req_tool in st.allowedTools)) }))
 }
 
-function decide(st: PermState, cwd: seq<string>, req: Req): Outcome
+function rejectIsDenyOnly(st: PermState, st2: PermState, cwd: seq<string>, req: Req): Outcome
+  requires st2.rejectPrompts
+  requires (st2.allowAll == st.allowAll)
+  requires (st2.autoAllow == st.autoAllow)
+  requires (st2.autoAllowCwd == st.autoAllowCwd)
+  requires (st2.allowedTools == st.allowedTools)
+  requires (st2.allowedBashCommands == st.allowedBashCommands)
+  requires (st2.allowedPaths == st.allowedPaths)
 {
-  if isAllowed(st, cwd, req) then
-    Outcome.Allow
-  else
-    if st.rejectPrompts then
-      Outcome.Deny
-    else
-      Outcome.Prompt
+  decide(st2, cwd, req)
 }
 
-lemma decide_ensures(st: PermState, cwd: seq<string>, req: Req)
-  ensures (decide(st, cwd, req).Allow? == isAllowed(st, cwd, req))
+lemma rejectIsDenyOnly_ensures(st: PermState, st2: PermState, cwd: seq<string>, req: Req)
+  requires st2.rejectPrompts
+  requires (st2.allowAll == st.allowAll)
+  requires (st2.autoAllow == st.autoAllow)
+  requires (st2.autoAllowCwd == st.autoAllowCwd)
+  requires (st2.allowedTools == st.allowedTools)
+  requires (st2.allowedBashCommands == st.allowedBashCommands)
+  requires (st2.allowedPaths == st.allowedPaths)
+  ensures (rejectIsDenyOnly(st, st2, cwd, req).Allow? == isAllowed(st, cwd, req))
+  ensures (!rejectIsDenyOnly(st, st2, cwd, req).Prompt?)
 {
 }

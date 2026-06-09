@@ -125,77 +125,61 @@ lemma findCut_ensures(msgs: seq<TMsg>, keepRecent: int)
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Proof additions (added in .dfy, additions-only over .dfy.gen).
-// T1 pairing is makeResults_ensures above (auto-discharged).
-// snapBack_ensures / findCut_ensures: the cut is never an orphan boundary.
+// Builders + surfaced properties (generated from transcript.ts).
+// The builder bodies hold the list concatenation //@ specs cannot express; the
+// `_ensures` lemma bodies below are the proofs (T2 / C1 / C2 / C3 + helpers).
 // ═══════════════════════════════════════════════════════════════════════════
 
-// A consistent sequence has a valid last message.
-lemma WfFromImpliesLastOk(msgs: seq<TMsg>)
-  requires |msgs| > 0
+function appendPair(msgs: seq<TMsg>, a: TMsg, t: TMsg): seq<TMsg>
+{
+  (msgs + [a, t])
+}
+
+function appendToolBlock(msgs: seq<TMsg>, calls: seq<TToolCall>): seq<TMsg>
+{
+  appendPair(msgs, assistant(calls), tool(makeResults(calls)))
+}
+
+function compact(msgs: seq<TMsg>, c: int): seq<TMsg>
+  requires (0 <= c)
+  requires (c <= |msgs|)
+{
+  ([TMsg.user] + msgs[c..])
+}
+
+function wfFromImpliesLastOk(msgs: seq<TMsg>): bool
+  requires (|msgs| > 0)
   requires wfFrom(msgs)
-  ensures lastOk(msgs[|msgs| - 1])
+  decreases |msgs|
+{
+  true
+}
+
+lemma wfFromImpliesLastOk_ensures(msgs: seq<TMsg>)
+  requires (|msgs| > 0)
+  requires wfFrom(msgs)
+  ensures lastOk(msgs[(|msgs| - 1)])
   decreases |msgs|
 {
   if |msgs| == 1 {
   } else {
-    WfFromImpliesLastOk(msgs[1..]);
+    wfFromImpliesLastOk_ensures(msgs[1..]);
     assert msgs[1..][|msgs[1..]| - 1] == msgs[|msgs| - 1];
   }
 }
 
-// Core induction: extend a consistent sequence by a connected (a, t) pair where
-// t is a valid last — consistency is preserved.
-lemma WfFromAppendPair(msgs: seq<TMsg>, a: TMsg, t: TMsg)
-  requires |msgs| > 0
+function wfFromSuffix(msgs: seq<TMsg>, c: int): bool
+  requires (0 <= c)
+  requires (c <= |msgs|)
   requires wfFrom(msgs)
-  requires okAdjacent(msgs[|msgs| - 1], a)
-  requires okAdjacent(a, t)
-  requires lastOk(t)
-  ensures wfFrom(msgs + [a, t])
-  decreases |msgs|
+  decreases c
 {
-  if |msgs| == 1 {
-    assert (msgs + [a, t])[1..] == [a, t];
-  } else {
-    assert msgs[1..][|msgs[1..]| - 1] == msgs[|msgs| - 1];
-    WfFromAppendPair(msgs[1..], a, t);
-    assert (msgs + [a, t])[1..] == msgs[1..] + [a, t];
-  }
+  true
 }
 
-// ── T2: appending a tool-result block preserves well-formedness ──────────────
-// No orphan tool_result can be sent, and no tool_use is left unanswered.
-lemma T2_AppendPreservesWellFormed(msgs: seq<TMsg>, calls: seq<TToolCall>)
-  requires wellFormed(msgs)
-  requires |calls| > 0
-  ensures wellFormed(msgs + [assistant(calls), tool(makeResults(calls))])
-{
-  var a := assistant(calls);
-  var t := tool(makeResults(calls));
-  makeResults_ensures(calls);
-  assert okAdjacent(a, t);
-  assert lastOk(t);
-  if |msgs| == 0 {
-    assert msgs + [a, t] == [a, t];
-    assert (msgs + [a, t])[1..] == [t];
-  } else {
-    WfFromImpliesLastOk(msgs);
-    assert okAdjacent(msgs[|msgs| - 1], a);
-    WfFromAppendPair(msgs, a, t);
-    assert (msgs + [a, t])[0] == msgs[0];
-  }
-}
-
-// ── C1: compaction preserves well-formedness (the drop-side mirror of T2) ────
-// /compact picks a cut with findCut (snapBack_ensures: the cut is never a tool
-// message) and replaces msgs[0..c] with a `user` summary. C1 proves the result
-// is well-formed: no orphaned tool_result, and no tool_use/tool_result pair is
-// ever split — the same invariant T2 maintains on the append side.
-
-// A suffix of a consistent sequence is consistent (the adjacency chain shrinks).
-lemma WfFromSuffix(msgs: seq<TMsg>, c: int)
-  requires 0 <= c <= |msgs|
+lemma wfFromSuffix_ensures(msgs: seq<TMsg>, c: int)
+  requires (0 <= c)
+  requires (c <= |msgs|)
   requires wfFrom(msgs)
   ensures wfFrom(msgs[c..])
   decreases c
@@ -204,69 +188,151 @@ lemma WfFromSuffix(msgs: seq<TMsg>, c: int)
     assert msgs[0..] == msgs;
   } else {
     assert wfFrom(msgs[1..]);
-    WfFromSuffix(msgs[1..], c - 1);
+    wfFromSuffix_ensures(msgs[1..], c - 1);
     assert msgs[1..][(c - 1)..] == msgs[c..];
   }
 }
 
-// C1: dropping the prefix at a safe (non-tool) cut and prepending a `user`
-// summary preserves well-formedness.
-lemma C1_CompactPreservesWellFormed(msgs: seq<TMsg>, c: int)
+function wfFromAppendPair(msgs: seq<TMsg>, a: TMsg, t: TMsg): bool
+  requires (|msgs| > 0)
+  requires wfFrom(msgs)
+  requires okAdjacent(msgs[(|msgs| - 1)], a)
+  requires okAdjacent(a, t)
+  requires lastOk(t)
+  decreases |msgs|
+{
+  true
+}
+
+lemma wfFromAppendPair_ensures(msgs: seq<TMsg>, a: TMsg, t: TMsg)
+  requires (|msgs| > 0)
+  requires wfFrom(msgs)
+  requires okAdjacent(msgs[(|msgs| - 1)], a)
+  requires okAdjacent(a, t)
+  requires lastOk(t)
+  ensures wfFrom(appendPair(msgs, a, t))
+  decreases |msgs|
+{
+  assert appendPair(msgs, a, t) == msgs + [a, t];
+  if |msgs| == 1 {
+    assert (msgs + [a, t])[1..] == [a, t];
+  } else {
+    assert msgs[1..][|msgs[1..]| - 1] == msgs[|msgs| - 1];
+    wfFromAppendPair_ensures(msgs[1..], a, t);
+    assert appendPair(msgs[1..], a, t) == msgs[1..] + [a, t];
+    assert (msgs + [a, t])[1..] == msgs[1..] + [a, t];
+  }
+}
+
+function appendPreservesWellFormed(msgs: seq<TMsg>, calls: seq<TToolCall>): bool
   requires wellFormed(msgs)
-  requires 0 <= c <= |msgs|
-  requires c == |msgs| || headOk(msgs[c])
-  ensures wellFormed([user] + msgs[c..])
+  requires (|calls| > 0)
+{
+  true
+}
+
+lemma appendPreservesWellFormed_ensures(msgs: seq<TMsg>, calls: seq<TToolCall>)
+  requires wellFormed(msgs)
+  requires (|calls| > 0)
+  ensures wellFormed(appendToolBlock(msgs, calls))
+{
+  var a := assistant(calls);
+  var t := tool(makeResults(calls));
+  makeResults_ensures(calls);
+  assert appendToolBlock(msgs, calls) == appendPair(msgs, a, t);
+  assert appendPair(msgs, a, t) == msgs + [a, t];
+  assert okAdjacent(a, t);
+  assert lastOk(t);
+  if |msgs| == 0 {
+    assert msgs + [a, t] == [a, t];
+    assert (msgs + [a, t])[1..] == [t];
+  } else {
+    wfFromImpliesLastOk_ensures(msgs);
+    assert okAdjacent(msgs[|msgs| - 1], a);
+    wfFromAppendPair_ensures(msgs, a, t);
+    assert (msgs + [a, t])[0] == msgs[0];
+  }
+}
+
+function compactPreservesWellFormed(msgs: seq<TMsg>, c: int): bool
+  requires wellFormed(msgs)
+  requires (0 <= c)
+  requires (c <= |msgs|)
+  requires ((c == |msgs|) || headOk(msgs[c]))
+{
+  true
+}
+
+lemma compactPreservesWellFormed_ensures(msgs: seq<TMsg>, c: int)
+  requires wellFormed(msgs)
+  requires (0 <= c)
+  requires (c <= |msgs|)
+  requires ((c == |msgs|) || headOk(msgs[c]))
+  ensures wellFormed(compact(msgs, c))
 {
   assert wfFrom(msgs);
-  WfFromSuffix(msgs, c);
+  wfFromSuffix_ensures(msgs, c);
+  assert compact(msgs, c) == [TMsg.user] + msgs[c..];
   var suffix := msgs[c..];
-  var res := [user] + suffix;
+  var res := [TMsg.user] + suffix;
   if |suffix| == 0 {
-    assert res == [user];
+    assert res == [TMsg.user];
   } else {
     assert c < |msgs|;
     assert headOk(msgs[c]);
     assert res[1..] == suffix;
     assert suffix[0] == msgs[c];
-    assert okAdjacent(user, suffix[0]);
+    assert okAdjacent(TMsg.user, suffix[0]);
   }
 }
 
-// ── C2 / C3: auto-compaction is well-behaved (terminates) ────────────────────
-// C1 says compaction stays well-formed; C2/C3 say the *process* converges. The
-// agent's maybeAutoCompact runs compact() when context is large and skips when
-// findCut == 0; these prove that loop can't grow history and must stop.
-
-// C2: compaction never grows the conversation. The compacted transcript is
-// [user summary] + msgs[c..], of length 1 + (|msgs| - c): for any cut that drops
-// the oldest message (c >= 1) it is no longer than the input, and for c >= 2 it
-// is strictly shorter — so repeatedly compacting can't blow up the history.
-lemma C2_CompactNonGrowing(msgs: seq<TMsg>, c: int)
-  requires 1 <= c <= |msgs|
-  ensures |[user] + msgs[c..]| <= |msgs|
+function compactNonGrowing(msgs: seq<TMsg>, c: int): bool
+  requires (1 <= c)
+  requires (c <= |msgs|)
 {
-  assert |[user] + msgs[c..]| == 1 + (|msgs| - c);
+  true
 }
 
-lemma C2_CompactShrinks(msgs: seq<TMsg>, c: int)
-  requires 2 <= c <= |msgs|
-  ensures |[user] + msgs[c..]| < |msgs|
+lemma compactNonGrowing_ensures(msgs: seq<TMsg>, c: int)
+  requires (1 <= c)
+  requires (c <= |msgs|)
+  ensures (|compact(msgs, c)| <= |msgs|)
 {
-  assert |[user] + msgs[c..]| == 1 + (|msgs| - c);
+  assert compact(msgs, c) == [TMsg.user] + msgs[c..];
+  assert |[TMsg.user] + msgs[c..]| == 1 + (|msgs| - c);
 }
 
-// C3: compaction becomes a no-op once the conversation is short enough. When at
-// most keepRecent messages remain, findCut keeps everything (returns 0) — so the
-// auto-compaction guard (skip when findCut == 0) provably fires, and the process
-// converges to a fixpoint rather than looping forever.
-lemma C3_CompactConverges(msgs: seq<TMsg>, keepRecent: int)
-  requires 0 <= keepRecent
+function compactShrinks(msgs: seq<TMsg>, c: int): bool
+  requires (2 <= c)
+  requires (c <= |msgs|)
+{
+  true
+}
+
+lemma compactShrinks_ensures(msgs: seq<TMsg>, c: int)
+  requires (2 <= c)
+  requires (c <= |msgs|)
+  ensures (|compact(msgs, c)| < |msgs|)
+{
+  assert compact(msgs, c) == [TMsg.user] + msgs[c..];
+  assert |[TMsg.user] + msgs[c..]| == 1 + (|msgs| - c);
+}
+
+function compactConverges(msgs: seq<TMsg>, keepRecent: int): bool
+  requires (0 <= keepRecent)
   requires wellFormed(msgs)
-  requires |msgs| <= keepRecent
-  ensures findCut(msgs, keepRecent) == 0
+  requires (|msgs| <= keepRecent)
 {
-  // want == 0 because |msgs| <= keepRecent, so findCut == snapBack(msgs, 0).
+  true
+}
+
+lemma compactConverges_ensures(msgs: seq<TMsg>, keepRecent: int)
+  requires (0 <= keepRecent)
+  requires wellFormed(msgs)
+  requires (|msgs| <= keepRecent)
+  ensures (findCut(msgs, keepRecent) == 0)
+{
   if |msgs| > 0 {
-    assert headOk(msgs[0]); // from wellFormed(msgs)
+    assert headOk(msgs[0]);
   }
 }

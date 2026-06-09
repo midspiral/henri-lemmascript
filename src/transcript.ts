@@ -126,3 +126,123 @@ export function findCut(msgs: TMsg[], keepRecent: number): number {
   const want = msgs.length > keepRecent ? msgs.length - keepRecent : 0;
   return snapBack(msgs, want);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Builders + verified properties. The headline theorems are about *constructed*
+// transcripts (append a tool block; drop a prefix). //@ specs can't write list
+// concatenation, so the concatenation lives in these small builder bodies and
+// the theorems below are stated over the builder calls. Each //@ ensures states
+// a property; the proof is the generated `_ensures` lemma body in transcript.dfy.
+// T1 (pairing) is the ensures already on makeResults() above.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** Append messages `a` then `t` to a transcript. */
+export function appendPair(msgs: TMsg[], a: TMsg, t: TMsg): TMsg[] {
+  //@ verify
+  return [...msgs, a, t];
+}
+
+/** The append the chat loop performs: an assistant tool-call turn answered by
+ *  its paired tool-result block (one result per call, ids preserved). */
+export function appendToolBlock(msgs: TMsg[], calls: TToolCall[]): TMsg[] {
+  //@ verify
+  return appendPair(
+    msgs,
+    { role: "assistant", toolCalls: calls },
+    { role: "tool", toolResults: makeResults(calls) },
+  );
+}
+
+/** The compaction the chat loop performs: replace the prefix before `c` with a
+ *  single `user` summary, keeping the suffix msgs[c..]. */
+export function compact(msgs: TMsg[], c: number): TMsg[] {
+  //@ verify
+  //@ requires 0 <= c && c <= msgs.length
+  return [{ role: "user" }, ...msgs.slice(c)];
+}
+
+/** A consistent transcript ends in a message that may legally be last. */
+export function wfFromImpliesLastOk(msgs: TMsg[]): boolean {
+  //@ verify
+  //@ requires msgs.length > 0
+  //@ requires wfFrom(msgs)
+  //@ decreases msgs.length
+  //@ ensures lastOk(msgs[msgs.length - 1])
+  return true;
+}
+
+/** A suffix of a consistent transcript is consistent (the adjacency chain shrinks). */
+export function wfFromSuffix(msgs: TMsg[], c: number): boolean {
+  //@ verify
+  //@ requires 0 <= c && c <= msgs.length
+  //@ requires wfFrom(msgs)
+  //@ decreases c
+  //@ ensures wfFrom(msgs.slice(c))
+  return true;
+}
+
+/** Core induction: extending a consistent transcript by a connected (a, t) pair
+ *  whose `t` is a valid last preserves consistency. */
+export function wfFromAppendPair(msgs: TMsg[], a: TMsg, t: TMsg): boolean {
+  //@ verify
+  //@ requires msgs.length > 0
+  //@ requires wfFrom(msgs)
+  //@ requires okAdjacent(msgs[msgs.length - 1], a)
+  //@ requires okAdjacent(a, t)
+  //@ requires lastOk(t)
+  //@ decreases msgs.length
+  //@ ensures wfFrom(appendPair(msgs, a, t))
+  return true;
+}
+
+// T2 (the headline). Appending a tool-call turn and its paired result block to a
+// well-formed transcript stays well-formed: no orphan tool_result is ever sent,
+// and no tool_use is left unanswered — the Anthropic API invariant, proven of
+// the loop's own append step.
+export function appendPreservesWellFormed(msgs: TMsg[], calls: TToolCall[]): boolean {
+  //@ verify
+  //@ requires wellFormed(msgs)
+  //@ requires calls.length > 0
+  //@ ensures wellFormed(appendToolBlock(msgs, calls))
+  return true;
+}
+
+// C1 (the drop-side mirror of T2). Dropping the prefix at a safe (non-tool) cut
+// and prepending a `user` summary preserves well-formedness — the retained
+// suffix never starts with an orphan tool_result.
+export function compactPreservesWellFormed(msgs: TMsg[], c: number): boolean {
+  //@ verify
+  //@ requires wellFormed(msgs)
+  //@ requires 0 <= c && c <= msgs.length
+  //@ requires c === msgs.length || headOk(msgs[c])
+  //@ ensures wellFormed(compact(msgs, c))
+  return true;
+}
+
+// C2. Compaction never grows the conversation, and strictly shrinks it whenever
+// it drops at least two messages — so repeated auto-compaction can't blow up.
+export function compactNonGrowing(msgs: TMsg[], c: number): boolean {
+  //@ verify
+  //@ requires 1 <= c && c <= msgs.length
+  //@ ensures compact(msgs, c).length <= msgs.length
+  return true;
+}
+
+export function compactShrinks(msgs: TMsg[], c: number): boolean {
+  //@ verify
+  //@ requires 2 <= c && c <= msgs.length
+  //@ ensures compact(msgs, c).length < msgs.length
+  return true;
+}
+
+// C3. Compaction converges: once at most keepRecent messages remain, findCut
+// keeps everything (returns 0), so the auto-compaction guard (skip when
+// findCut == 0) provably fires and the process reaches a fixpoint.
+export function compactConverges(msgs: TMsg[], keepRecent: number): boolean {
+  //@ verify
+  //@ requires 0 <= keepRecent
+  //@ requires wellFormed(msgs)
+  //@ requires msgs.length <= keepRecent
+  //@ ensures findCut(msgs, keepRecent) === 0
+  return true;
+}

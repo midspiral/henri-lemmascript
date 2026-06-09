@@ -78,7 +78,73 @@ lemma editFile_ensures(content: seq<string>, old_: seq<string>, all: bool)
 {
 }
 
-// ── Splice faithfulness (proof additions) ────────────────────────────────────
+// ── Splice faithfulness, surfaced as theorems ────────────────────────────────
+// Each property's STATEMENT lives in edit.ts (//@ ensures on a pure carrier);
+// the inductive PROOF is the generated `_ensures` lemma body, filled below.
+
+function noMatchIdentity(hay: seq<string>, old_: seq<string>, repl: seq<string>): bool
+  requires !(occurs(hay, old_))
+{
+  true
+}
+
+// E2 — replacing text that does not occur leaves the content unchanged.
+lemma noMatchIdentity_ensures(hay: seq<string>, old_: seq<string>, repl: seq<string>)
+  requires !(occurs(hay, old_))
+  ensures (replaceFirst(hay, old_, repl) == hay)
+  decreases |hay|
+{
+  if |hay| > 0 {
+    assert !matchesAt(hay, old_) && !occurs(hay[1..], old_);
+    noMatchIdentity_ensures(hay[1..], old_, repl);
+    assert hay == [hay[0]] + hay[1..];
+  }
+}
+
+function spliceNoop(hay: seq<string>, old_: seq<string>): bool
+{
+  true
+}
+
+// E3 — replacing `old` with `old` is a no-op: the splice touches exactly the
+// matched span and preserves everything else.
+lemma spliceNoop_ensures(hay: seq<string>, old_: seq<string>)
+  ensures (replaceFirst(hay, old_, old_) == hay)
+  decreases |hay|
+{
+  if |hay| > 0 {
+    if matchesAt(hay, old_) {
+      MatchSplit(hay, old_);
+    } else {
+      spliceNoop_ensures(hay[1..], old_);
+      assert hay == [hay[0]] + hay[1..];
+    }
+  }
+}
+
+function spliceLength(hay: seq<string>, old_: seq<string>, repl: seq<string>): bool
+  requires occurs(hay, old_)
+{
+  true
+}
+
+// E4 — a single splice changes the length by exactly |repl| - |old|.
+lemma spliceLength_ensures(hay: seq<string>, old_: seq<string>, repl: seq<string>)
+  requires occurs(hay, old_)
+  ensures (|replaceFirst(hay, old_, repl)| == ((|hay| - |old_|) + |repl|))
+  decreases |hay|
+{
+  assert |hay| > 0;
+  if matchesAt(hay, old_) {
+    DropMatchLen(hay, old_);
+  } else {
+    assert occurs(hay[1..], old_);
+    spliceLength_ensures(hay[1..], old_, repl);
+    assert hay == [hay[0]] + hay[1..];
+  }
+}
+
+// ── Helper lemmas (proof plumbing; not headline properties) ───────────────────
 
 // The matched prefix is exactly `old`: dropMatch removes it and nothing more.
 lemma MatchSplit(hay: seq<string>, old_: seq<string>)
@@ -99,49 +165,4 @@ lemma DropMatchLen(hay: seq<string>, old_: seq<string>)
   ensures |dropMatch(hay, old_)| == |hay| - |old_|
 {
   MatchSplit(hay, old_);
-}
-
-// E2 — replacing text that does not occur leaves the content unchanged.
-lemma E2_NoMatchIdentity(hay: seq<string>, old_: seq<string>, repl: seq<string>)
-  requires !occurs(hay, old_)
-  ensures replaceFirst(hay, old_, repl) == hay
-  decreases |hay|
-{
-  if |hay| > 0 {
-    assert !matchesAt(hay, old_) && !occurs(hay[1..], old_);
-    E2_NoMatchIdentity(hay[1..], old_, repl);
-    assert hay == [hay[0]] + hay[1..];
-  }
-}
-
-// E3 — replacing `old` with `old` is a no-op: the splice touches exactly the
-// matched span and preserves everything else.
-lemma E3_SpliceNoop(hay: seq<string>, old_: seq<string>)
-  ensures replaceFirst(hay, old_, old_) == hay
-  decreases |hay|
-{
-  if |hay| > 0 {
-    if matchesAt(hay, old_) {
-      MatchSplit(hay, old_);
-    } else {
-      E3_SpliceNoop(hay[1..], old_);
-      assert hay == [hay[0]] + hay[1..];
-    }
-  }
-}
-
-// Length law — a single splice changes the length by exactly |repl| - |old|.
-lemma E_Len(hay: seq<string>, old_: seq<string>, repl: seq<string>)
-  requires occurs(hay, old_)
-  ensures |replaceFirst(hay, old_, repl)| == |hay| - |old_| + |repl|
-  decreases |hay|
-{
-  assert |hay| > 0;
-  if matchesAt(hay, old_) {
-    DropMatchLen(hay, old_);
-  } else {
-    assert occurs(hay[1..], old_);
-    E_Len(hay[1..], old_, repl);
-    assert hay == [hay[0]] + hay[1..];
-  }
 }

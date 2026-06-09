@@ -6,111 +6,148 @@ datatype TToolResult = TToolResult(toolCallId: string, isError: bool)
 
 datatype TMsg = user | assistant(toolCalls: seq<TToolCall>) | tool(toolResults: seq<TToolResult>)
 
-function pairs(calls: seq<TToolCall>, results: seq<TToolResult>): bool
-  decreases |calls|
+function appendPair(msgs: seq<TMsg>, a: TMsg, t: TMsg): seq<TMsg>
 {
-  if (|results| != |calls|) then
-    false
-  else
-    ((|calls| == 0) || (if (results[0].toolCallId != calls[0].id) then false else pairs(calls[1..], results[1..])))
+  (msgs + [a, t])
 }
 
-function makeResults(calls: seq<TToolCall>): seq<TToolResult>
-  decreases |calls|
+function appendToolBlock(msgs: seq<TMsg>, calls: seq<TToolCall>): seq<TMsg>
 {
-  if (|calls| == 0) then
-    []
-  else
-    ([TToolResult(calls[0].id, false)] + makeResults(calls[1..]))
+  appendPair(msgs, assistant(calls), tool(makeResults(calls)))
 }
 
-lemma makeResults_ensures(calls: seq<TToolCall>)
-  ensures (|makeResults(calls)| == |calls|)
-  ensures pairs(calls, makeResults(calls))
+function compact(msgs: seq<TMsg>, c: int): seq<TMsg>
+  requires (0 <= c)
+  requires (c <= |msgs|)
 {
+  ([TMsg.user] + msgs[c..])
 }
 
-function headOk(m: TMsg): bool
-{
-  (!m.tool?)
-}
-
-function lastOk(m: TMsg): bool
-{
-  match m {
-    case assistant(i_m_toolCalls) =>
-      (|i_m_toolCalls| == 0)
-    case _ =>
-      true
-  }
-}
-
-function okAdjacent(a: TMsg, b: TMsg): bool
-{
-  match a {
-    case assistant(i_a_toolCalls) =>
-      if (|i_a_toolCalls| > 0) then
-        match b {
-          case tool(i_b_toolResults) =>
-            pairs(i_a_toolCalls, i_b_toolResults)
-          case _ =>
-            false
-        }
-      else
-        (!b.tool?)
-    case _ =>
-      (!b.tool?)
-  }
-}
-
-function wfFrom(msgs: seq<TMsg>): bool
+function wfFromImpliesLastOk(msgs: seq<TMsg>): bool
+  requires (|msgs| > 0)
+  requires wfFrom(msgs)
   decreases |msgs|
 {
-  ((|msgs| == 0) || (if (|msgs| == 1) then lastOk(msgs[0]) else (okAdjacent(msgs[0], msgs[1]) && wfFrom(msgs[1..]))))
+  true
 }
 
-function wellFormed(msgs: seq<TMsg>): bool
+lemma wfFromImpliesLastOk_ensures(msgs: seq<TMsg>)
+  requires (|msgs| > 0)
+  requires wfFrom(msgs)
+  ensures lastOk(msgs[(|msgs| - 1)])
 {
-  ((|msgs| == 0) || (headOk(msgs[0]) && wfFrom(msgs)))
 }
 
-function snapBack(msgs: seq<TMsg>, c: int): int
+function wfFromSuffix(msgs: seq<TMsg>, c: int): bool
   requires (0 <= c)
   requires (c <= |msgs|)
+  requires wfFrom(msgs)
   decreases c
 {
-  if (c >= |msgs|) then
-    |msgs|
-  else
-    if headOk(msgs[c]) then
-      c
-    else
-      if (c == 0) then
-        |msgs|
-      else
-        snapBack(msgs, (c - 1))
+  true
 }
 
-lemma snapBack_ensures(msgs: seq<TMsg>, c: int)
+lemma wfFromSuffix_ensures(msgs: seq<TMsg>, c: int)
   requires (0 <= c)
   requires (c <= |msgs|)
-  ensures (0 <= snapBack(msgs, c))
-  ensures (snapBack(msgs, c) <= |msgs|)
-  ensures ((snapBack(msgs, c) == |msgs|) || headOk(msgs[snapBack(msgs, c)]))
+  requires wfFrom(msgs)
+  ensures wfFrom(msgs[c..])
 {
 }
 
-function findCut(msgs: seq<TMsg>, keepRecent: int): int
-  requires (0 <= keepRecent)
+function wfFromAppendPair(msgs: seq<TMsg>, a: TMsg, t: TMsg): bool
+  requires (|msgs| > 0)
+  requires wfFrom(msgs)
+  requires okAdjacent(msgs[(|msgs| - 1)], a)
+  requires okAdjacent(a, t)
+  requires lastOk(t)
+  decreases |msgs|
 {
-  var want := (if (|msgs| > keepRecent) then (|msgs| - keepRecent) else 0);
-  snapBack(msgs, want)
+  true
 }
 
-lemma findCut_ensures(msgs: seq<TMsg>, keepRecent: int)
+lemma wfFromAppendPair_ensures(msgs: seq<TMsg>, a: TMsg, t: TMsg)
+  requires (|msgs| > 0)
+  requires wfFrom(msgs)
+  requires okAdjacent(msgs[(|msgs| - 1)], a)
+  requires okAdjacent(a, t)
+  requires lastOk(t)
+  ensures wfFrom(appendPair(msgs, a, t))
+{
+}
+
+function appendPreservesWellFormed(msgs: seq<TMsg>, calls: seq<TToolCall>): bool
+  requires wellFormed(msgs)
+  requires (|calls| > 0)
+{
+  true
+}
+
+lemma appendPreservesWellFormed_ensures(msgs: seq<TMsg>, calls: seq<TToolCall>)
+  requires wellFormed(msgs)
+  requires (|calls| > 0)
+  ensures wellFormed(appendToolBlock(msgs, calls))
+{
+}
+
+function compactPreservesWellFormed(msgs: seq<TMsg>, c: int): bool
+  requires wellFormed(msgs)
+  requires (0 <= c)
+  requires (c <= |msgs|)
+  requires ((c == |msgs|) || headOk(msgs[c]))
+{
+  true
+}
+
+lemma compactPreservesWellFormed_ensures(msgs: seq<TMsg>, c: int)
+  requires wellFormed(msgs)
+  requires (0 <= c)
+  requires (c <= |msgs|)
+  requires ((c == |msgs|) || headOk(msgs[c]))
+  ensures wellFormed(compact(msgs, c))
+{
+}
+
+function compactNonGrowing(msgs: seq<TMsg>, c: int): bool
+  requires (1 <= c)
+  requires (c <= |msgs|)
+{
+  true
+}
+
+lemma compactNonGrowing_ensures(msgs: seq<TMsg>, c: int)
+  requires (1 <= c)
+  requires (c <= |msgs|)
+  ensures (|compact(msgs, c)| <= |msgs|)
+{
+}
+
+function compactShrinks(msgs: seq<TMsg>, c: int): bool
+  requires (2 <= c)
+  requires (c <= |msgs|)
+{
+  true
+}
+
+lemma compactShrinks_ensures(msgs: seq<TMsg>, c: int)
+  requires (2 <= c)
+  requires (c <= |msgs|)
+  ensures (|compact(msgs, c)| < |msgs|)
+{
+}
+
+function compactConverges(msgs: seq<TMsg>, keepRecent: int): bool
   requires (0 <= keepRecent)
-  ensures (0 <= findCut(msgs, keepRecent))
-  ensures (findCut(msgs, keepRecent) <= |msgs|)
-  ensures ((findCut(msgs, keepRecent) == |msgs|) || headOk(msgs[findCut(msgs, keepRecent)]))
+  requires wellFormed(msgs)
+  requires (|msgs| <= keepRecent)
+{
+  true
+}
+
+lemma compactConverges_ensures(msgs: seq<TMsg>, keepRecent: int)
+  requires (0 <= keepRecent)
+  requires wellFormed(msgs)
+  requires (|msgs| <= keepRecent)
+  ensures (findCut(msgs, keepRecent) == 0)
 {
 }
