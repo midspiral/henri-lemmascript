@@ -8,7 +8,7 @@ import type { Provider } from "../providers/index.ts";
 import type { Policy, Workflow } from "guardians";
 import { userMessage } from "../messages.ts";
 import { getDefaultTools } from "../tools/base.ts";
-import { DEFAULT_AUTO_ALLOW_CWD, DEFAULT_PATH_BASED, PermissionGate, emptyState } from "../permission-gate.ts";
+import { DEFAULT_AUTO_ALLOW_CWD, DEFAULT_PATH_BASED, InteractiveGate, emptyState } from "../permission-gate.ts";
 import { color, panel, truncate } from "../ui.ts";
 import { planSystemPrompt } from "./prompt.ts";
 import { parsePlan, renderLiterate } from "./plan.ts";
@@ -76,7 +76,7 @@ export async function runPlanMode(provider: Provider, task: string, signal?: Abo
   // permission gate stays on as the RUNTIME RESIDUAL (DESIGN_GVE.md §9) for the axes the
   // static check does not cover (e.g. a destructive but untainted path).
   const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-  const gate = new PermissionGate(
+  const gate = new InteractiveGate(
     emptyState(new Set(), new Set(DEFAULT_AUTO_ALLOW_CWD), false),
     new Set(DEFAULT_PATH_BASED),
     (q) => rl.question(q),

@@ -158,6 +158,7 @@ export function appendToolBlock(msgs: TMsg[], calls: TToolCall[]): TMsg[] {
 export function compact(msgs: TMsg[], c: number): TMsg[] {
   //@ verify
   //@ requires 0 <= c && c <= msgs.length
+  //@ ensures (wellFormed(msgs) && (c === msgs.length || headOk(msgs[c]))) ==> wellFormed(\result)
   return [{ role: "user" }, ...msgs.slice(c)];
 }
 
@@ -244,5 +245,111 @@ export function compactConverges(msgs: TMsg[], keepRecent: number): boolean {
   //@ requires wellFormed(msgs)
   //@ requires msgs.length <= keepRecent
   //@ ensures findCut(msgs, keepRecent) === 0
+  return true;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Session builders — the transcript operations the verified session core
+// (session.ts) performs. Each carries its safety as a //@ ensures so that the
+// contract LIFTS across the file boundary: session.dfy sees these as axioms
+// with exactly these requires/ensures (proven here, in transcript.dfy).
+// The session core constructs transcripts ONLY through these builders.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** The empty conversation — the session's initial state is well-formed. */
+export function initialMsgs(): TMsg[] {
+  //@ verify
+  //@ ensures wellFormed(\result)
+  //@ ensures \result.length === 0
+  return [];
+}
+
+/** Append a `user` message — preserves well-formedness. */
+export function appendUserMsg(msgs: TMsg[]): TMsg[] {
+  //@ verify
+  //@ requires wellFormed(msgs)
+  //@ ensures wellFormed(\result)
+  //@ ensures \result.length === msgs.length + 1
+  return [...msgs, { role: "user" }];
+}
+
+/** Append an assistant message that made no tool calls (a finished turn, or an
+ *  interrupted stream whose partial text is kept) — preserves well-formedness. */
+export function appendAssistantDone(msgs: TMsg[]): TMsg[] {
+  //@ verify
+  //@ requires wellFormed(msgs)
+  //@ ensures wellFormed(\result)
+  //@ ensures \result.length === msgs.length + 1
+  return [...msgs, { role: "assistant", toolCalls: [] }];
+}
+
+/** Append an assistant tool-call turn together with its ANSWERED results — the
+ *  general form of appendToolBlock: any paired result block (denials and errors
+ *  included), not just the all-ok makeResults. Preserves well-formedness. */
+export function appendAnsweredBlock(msgs: TMsg[], calls: TToolCall[], results: TToolResult[]): TMsg[] {
+  //@ verify
+  //@ requires wellFormed(msgs)
+  //@ requires calls.length > 0
+  //@ requires pairs(calls, results)
+  //@ ensures wellFormed(\result)
+  return appendPair(msgs, { role: "assistant", toolCalls: calls }, { role: "tool", toolResults: results });
+}
+
+// ── Batch accumulation: building the result block one call at a time ─────────
+// The session core answers a tool batch incrementally (execute / deny / error /
+// interrupt). `pairsTo` is the mid-batch invariant; pushResult/fillRest are the
+// only ways the core extends a batch, and each carries its pairing fact.
+
+/** `results` answer the FIRST results.length calls, ids in order — the
+ *  mid-batch pairing invariant (pairs = pairsTo at full length). */
+export function pairsTo(calls: TToolCall[], results: TToolResult[]): boolean {
+  //@ verify
+  //@ decreases calls.length
+  if (results.length > calls.length) return false;
+  if (results.length === 0) return true;
+  if (calls.length === 0) return false;
+  if (results[0].toolCallId !== calls[0].id) return false;
+  return pairsTo(calls.slice(1), results.slice(1));
+}
+
+/** Start a batch: no results yet (trivially paired). */
+export function startResults(calls: TToolCall[]): TToolResult[] {
+  //@ verify
+  //@ ensures pairsTo(calls, \result)
+  //@ ensures \result.length === 0
+  return [];
+}
+
+/** Record the result for the next unanswered call. When this answers the last
+ *  call, the block pairs exactly (the conditional ensures). */
+export function pushResult(calls: TToolCall[], done: TToolResult[], isError: boolean): TToolResult[] {
+  //@ verify
+  //@ requires pairsTo(calls, done)
+  //@ requires done.length < calls.length
+  //@ ensures pairsTo(calls, \result)
+  //@ ensures \result.length === done.length + 1
+  //@ ensures \result.length === calls.length ==> pairs(calls, \result)
+  return [...done, { toolCallId: calls[done.length].id, isError }];
+}
+
+/** Answer every remaining call with an error result — the interrupt path: Esc
+ *  mid-batch still leaves every tool_use answered. (The pairing guarantee is
+ *  conditional so the recursion needs no lemma support inside the body.) */
+export function fillRest(calls: TToolCall[], done: TToolResult[]): TToolResult[] {
+  //@ verify
+  //@ requires done.length <= calls.length
+  //@ decreases calls.length - done.length
+  //@ ensures pairsTo(calls, done) ==> pairs(calls, \result)
+  if (done.length === calls.length) return done;
+  return fillRest(calls, [...done, { toolCallId: calls[done.length].id, isError: true }]);
+}
+
+// fillRest needs no progress witness beyond pairing; pairsTo at full length IS
+// pairs — surfaced so callers holding a complete batch can use it directly.
+export function pairsToComplete(calls: TToolCall[], results: TToolResult[]): boolean {
+  //@ verify
+  //@ requires pairsTo(calls, results)
+  //@ requires results.length === calls.length
+  //@ ensures pairs(calls, results)
   return true;
 }

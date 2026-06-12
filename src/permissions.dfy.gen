@@ -108,3 +108,47 @@ lemma rejectIsDenyOnly_ensures(st: PermState, st2: PermState, cwd: seq<string>, 
   ensures (!rejectIsDenyOnly(st, st2, cwd, req).Prompt?)
 {
 }
+
+function grantFor(st: PermState, cwd: seq<string>, req: Req): PermState
+{
+  match req {
+    case bash(i_req_command) =>
+      st.(allowedBashCommands := (st.allowedBashCommands + {i_req_command}))
+    case path(i_req_tool, i_req_segs, i_req_absolute) =>
+      st.(allowedPaths := (st.allowedPaths + [PathGrant(i_req_tool, resolvePath(cwd, i_req_segs, i_req_absolute))]))
+    case other(i_req_tool) =>
+      st.(allowedTools := (st.allowedTools + {i_req_tool}))
+  }
+}
+
+lemma grantFor_ensures(st: PermState, cwd: seq<string>, req: Req)
+  ensures isAllowed(grantFor(st, cwd, req), cwd, req)
+  ensures (grantFor(st, cwd, req).rejectPrompts == st.rejectPrompts)
+  ensures (grantFor(st, cwd, req).autoAllow == st.autoAllow)
+  ensures (grantFor(st, cwd, req).autoAllowCwd == st.autoAllowCwd)
+  ensures (grantFor(st, cwd, req).allowAll == st.allowAll)
+{
+}
+
+function grantAll(st: PermState, cwd: seq<string>, req: Req): PermState
+{
+  st.(allowAll := true)
+}
+
+lemma grantAll_ensures(st: PermState, cwd: seq<string>, req: Req)
+  ensures isAllowed(grantAll(st, cwd, req), cwd, req)
+  ensures (grantAll(st, cwd, req).rejectPrompts == st.rejectPrompts)
+{
+}
+
+function grantPreservesAllowed(st: PermState, cwd: seq<string>, req: Req, pcwd: seq<string>, prior: Req): bool
+  requires isAllowed(st, pcwd, prior)
+{
+  true
+}
+
+lemma grantPreservesAllowed_ensures(st: PermState, cwd: seq<string>, req: Req, pcwd: seq<string>, prior: Req)
+  requires isAllowed(st, pcwd, prior)
+  ensures isAllowed(grantFor(st, cwd, req), pcwd, prior)
+{
+}

@@ -34,9 +34,22 @@ imported directly by the live agent. See [DESIGN.md](DESIGN.md).
   `MatchSplit`), and a length law. The live `edit_file` tool calls the verified
   `editFile`/`replaceFirst`; the `replace_all` join stays shell. Proofs in
   [`src/edit.dfy`](src/edit.dfy).
+- **Phase 5 — `session.ts` verified: done.** The agent loop itself is now a verified
+  transition system (`lsc check` green, 65 Dafny VCs, 0 errors): a pure
+  `step(state, event)` makes every decision — gating, grant recording, transcript
+  appends, compaction cuts, interrupt handling — and `agent.ts` degrades to a command
+  interpreter. The theorems quantify over ALL events, so the provider is modeled as an
+  adversary: (S1) no tool execution is ever commanded without a justification — prompt
+  injection cannot reach an ungated effect; (S2) the session invariant (transcript
+  well-formedness + batch pairing + cut safety) survives every event, interrupts
+  included; (S3) provider calls only happen on well-formed transcripts within the turn
+  budget; (S4) compaction cuts are safe and nontrivial; (S5) only prompt answers ever
+  change the permission state, via the verified grant builders (G1/G2 in
+  `permissions.ts`). Proofs in [`src/session.dfy`](src/session.dfy).
 
-**All four verified cores are proven (76 Dafny VCs, 0 errors).** The runnable agent
-imports them directly.
+**All verified cores are proven (187 Dafny VCs, 0 errors).** The runnable agent
+imports them directly — and since Phase 5, the loop that calls them is itself one
+of them.
 
 ## Run
 
@@ -66,13 +79,15 @@ henri --provider bedrock   # then run from anywhere
 
 ```sh
 npm run typecheck   # tsc --noEmit
-npm test            # test/smoke.ts — runtime witnesses for the verified properties
-npm run verify      # regenerate + verify all Dafny proofs (LemmaScript-files.txt) — 76 VCs
+npm test            # test/smoke.ts + test/session-smoke.ts — runtime witnesses for the
+                    # verified properties, incl. the real interpreter driven end-to-end
+                    # by a scripted provider
+npm run verify      # regenerate + verify all Dafny proofs (LemmaScript-files.txt) — 187 VCs
 ```
 
 `npm run verify` runs `../LemmaScript/tools/check.sh dafny` over the modules listed in
-[`LemmaScript-files.txt`](LemmaScript-files.txt): it regenerates each `.dfy.gen` merge
-base, enforces the additions-only invariant against the proof `.dfy`, and runs Dafny.
+[`LemmaScript-files.txt`](LemmaScript-files.txt) (187 VCs): it regenerates each `.dfy.gen`
+merge base, enforces the additions-only invariant against the proof `.dfy`, and runs Dafny.
 CI ([`.github/workflows/lemmascript.yml`](.github/workflows/lemmascript.yml)) does the same plus
 typecheck + smoke, and fails if any generated file is stale. Requires a sibling
 `../LemmaScript` checkout and Dafny ≥ 4.x.
@@ -84,13 +99,17 @@ For the exact theorems (every lemma, its statement, and the proof techniques), s
 
 | Module | Proves | Headline |
 |--------|--------|----------|
-| `src/permissions.ts` | `decide()` soundness, **path-traversal containment**, grant monotonicity, reject-prompt safety | a path escaping cwd is never auto-granted |
-| `src/transcript.ts` | tool-call/result pairing + **no-orphan invariant** of the loop (append **and** the `/compact` drop side) | the conversation sent to the provider is always well-formed, including after compaction |
+| `src/permissions.ts` | `decide()` soundness, **path-traversal containment**, grant monotonicity, reject-prompt safety, **verified grant recording** (G1: a grant justifies exactly what was approved; G2: it never revokes) | a path escaping cwd is never auto-granted |
+| `src/transcript.ts` | tool-call/result pairing + **no-orphan invariant** of the loop (append **and** the `/compact` drop side); the session builders the loop constructs transcripts with | the conversation sent to the provider is always well-formed, including after compaction |
 | `src/hooks.ts` | merge removal, **name-uniqueness (a fix)**, order-independence, additivity | hooks only ever add access |
 | `src/edit.ts` | `editFile()` decision soundness, **single-occurrence splice faithfulness**, length law | an edit touches exactly the matched span, nothing else |
+| `src/session.ts` | the agent loop as a transition system: **mediation under any event** (S1), invariant preservation incl. interrupts (S2), provider-call / compaction-cut safety (S3/S4), grant discipline (S5) | no sequence of events — prompt injection included — can drive the loop into an ungated effect or a malformed conversation |
 
-The shell (`agent.ts`, `permission-gate.ts`, `providers/`, `tools/`, `ui.ts`,
-`cli.ts`) is unverified and gates every action through the core.
+The shell (`agent.ts` — a command interpreter over the session core —
+`permission-gate.ts` (prompt UI + the `Req` projection), `providers/`, `tools/`,
+`ui.ts`, `cli.ts`) is unverified: it performs the commands the core emits, feeds
+back events, and mirrors the model transcript with real contents (the mirror is
+re-checked against the verified model before every provider call).
 
 ## License
 

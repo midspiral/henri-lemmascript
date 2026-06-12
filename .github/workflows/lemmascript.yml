@@ -2,7 +2,7 @@ name: LemmaScript
 
 on:
   push:
-    branches: [main, generate-verify-execute]
+    branches: [main, generate-verify-execute, session]
   pull_request:
 
 jobs:

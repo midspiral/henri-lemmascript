@@ -4,22 +4,25 @@ A hackable agent CLI (a TypeScript port of [henri](https://github.com/metareflec
 protocol-critical decision logic is **verified with [LemmaScript](https://github.com/midspiral/LemmaScript)
 (Dafny backend)** and imported directly by the live, runnable agent — it streams
 against Anthropic and AWS Bedrock end to end. The proven functions are not a
-side model: `decide()` gates every tool call, `pairs`/`wellFormed` are checked
-on every turn of the real loop, and `editFile`/`replaceFirst` back the edit tool.
+side model: the agent loop itself is the verified `step` of `session.ts` (§5),
+`decide()` gates every tool call inside it, and `editFile`/`replaceFirst` back
+the edit tool.
 
-**76 Dafny verification conditions, 0 errors**, across four modules. Reproduce with
+**187 Dafny verification conditions, 0 errors** — permissions 23, transcript 52,
+hooks 25, edit 12, GVE `exec_core` 10, session 65. Reproduce with
 `npm run verify` (regenerates each `.dfy.gen` merge base, enforces additions-only
 against the proof `.dfy`, runs Dafny); CI in
 [`.github/workflows/lemmascript.yml`](.github/workflows/lemmascript.yml).
 
 The bulk of henri — provider SDKs, streaming, terminal UI, `subprocess`, filesystem,
-network, and the interactive permission prompting — is the **unverified shell**. It is
-not a parallel model of the verified core; it *calls into* it. There is no erasure and
-no semantic gap: the annotated `.ts` is the production code the agent runs.
+network, and the interactive permission prompt UI — is the **unverified shell**. It is
+not a parallel model of the verified core; it *interprets* it: the shell performs the
+commands the verified session core emits and feeds back events. There is no erasure
+and no semantic gap: the annotated `.ts` is the production code the agent runs.
 
 ---
 
-## 1. `permissions.ts` — the access decision (14 VCs)
+## 1. `permissions.ts` — the access decision (23 VCs)
 
 The pure gate `decide(st, cwd, req): Outcome` (`Allow`/`Deny`/`Prompt`), mirroring
 henri's `PermissionManager.check()`. Paths are modeled as **normalized segment
@@ -34,11 +37,13 @@ is trusted only to `path.resolve(p).split('/')`.
 | P2 witness | `P2_EscapeWitness` | Concrete: `../../x` from cwd `a/b` resolves to `["x"]`, which is not within `a/b`. |
 | **P3 monotonicity** | `P3_GrantBashMonotone`, `P3_GrantPathMonotone`, `P3_AllowAllGrantsEverything`, `P3_GrowAutoSetsMonotone` | Adding any grant (exact command, per-path, allow-all, or growing the auto-allow sets) only turns `Deny`/`Prompt` into `Allow`, never the reverse. (`PathGrantedAppendMonotone` is the per-path induction.) |
 | **P4 reject-safety** | `P4_RejectIsDenyOnly` | Enabling `rejectPrompts` preserves the Allow set exactly and never yields `Prompt` — automation/bench mode cannot escalate beyond what was pre-authorized. |
+| **G1 grant justifies** | `grantFor_ensures`, `grantAll_ensures` | `isAllowed(grantFor(st, cwd, req), cwd, req)` — recording the interactive "(a)lways" (or "(A)ll") grant justifies exactly the request the user approved, and leaves `rejectPrompts` untouched. These are the ONLY PermState updates the session core performs. |
+| **G2 grant never revokes** | `grantPreservesAllowed_ensures` | Anything justified before `grantFor` stays justified after — grants only ever widen access (composes with P3/P4). |
 
 This is the hono/rallly directory-traversal CVE flavor, proven on an *agent's*
 permission gate.
 
-## 2. `transcript.ts` — the tool-call/result protocol (26 VCs)
+## 2. `transcript.ts` — the tool-call/result protocol (52 VCs)
 
 The conversation the agent sends to a provider must satisfy the Anthropic API
 rule: every `tool_use` is answered by exactly one `tool_result` with the matching
@@ -58,11 +63,19 @@ id, in order, and a tool message only follows an assistant-with-calls. This is t
 T1/T2 are proven by induction over the recursive adjacency predicate
 (`WfFromAppendPair`, `WfFromImpliesLastOk`); C1 by `WfFromSuffix` (a suffix of a
 consistent sequence is consistent); C2/C3 are length/`findCut` arithmetic that pin
-down auto-compaction termination. The live `agent.ts` calls `pairs`/`wellFormed` as
-a runtime assertion every turn, `findCut`/`wellFormed` on every `/compact` (manual
-or auto) — it throws before sending a malformed transcript.
+down auto-compaction termination.
 
-## 3. `hooks.ts` — config / hook merge (24 VCs)
+The module also carries the **session builders** — the only operations the verified
+session core (§5) constructs transcripts with, each with its preservation proven as
+its contract: `initialMsgs` / `appendUserMsg` / `appendAssistantDone` keep
+`wellFormed`; `appendAnsweredBlock` (the general tool block: any *paired* results,
+denials and errors included) keeps `wellFormed`; and the batch accumulators
+`startResults` / `pushResult` / `fillRest` maintain the mid-batch pairing invariant
+`pairsTo` (results answer the first n calls, ids in order), with `pushResult`
+yielding full `pairs` on the last call and `fillRest` (the interrupt path) closing
+any remainder with paired error results (`PairsToSnoc`/`PairsToPairs` inductions).
+
+## 3. `hooks.ts` — config / hook merge (25 VCs)
 
 How henri assembles its tool table and permission config from a base plus hooks.
 Verified **in place** via `//@ declare-type Tool { name: string }` (the real `Tool`
@@ -104,19 +117,54 @@ character (or shrinks `old`), so termination and in-bounds slicing are structura
 no overlap/length side-lemmas needed. The live tool calls `editFile` for the verdict
 and `replaceFirst` for the single splice; the all-occurrence join stays shell.
 
+## 5. `session.ts` — the agent loop as a verified transition system (65 VCs)
+
+The loop itself is a pure `step(st: Session, ev: SEvent): { st, cmds }`. The shell
+(`agent.ts`) is a command interpreter: it performs the emitted `SCommand`s
+(`callProvider` / `execTool` / `askUser` / `skipTool` / `summarize`) and feeds back
+`SEvent`s (`userInput`, `providerReply`, `toolDone`, `promptAnswer`, interrupts,
+`summaryReady`, …). Gating, grant recording, transcript appends, compaction cuts,
+and interrupt handling are all verified transitions. The theorems quantify over
+**all** events in **all** inv-states, so the provider (the LLM) is an adversary by
+construction: nothing it can emit reaches an unjustified effect.
+
+| Property | Lemma | Statement |
+|----------|-------|-----------|
+| **S1 mediation** *(headline)* | `stepMediation_ensures` | Every `execTool` command step ever emits is `justified`: the tool is exempt (`noPerm`), or `isAllowed` holds in the post-state (auto-allows, prior session grants, or the always/All grant recorded in the same transition — G1), or the user answered "yes" to *exactly this call*. There is no fourth path — prompt injection cannot trigger an ungated effect. |
+| **S2 preservation** | `stepPreservesInv_ensures` | `inv` — transcript well-formedness + batch pairing (`pairsTo`) + compaction-cut safety — survives every event, including Esc mid-stream and mid-batch. With `initialSession`'s `ensures inv`, every reachable session state satisfies `inv` by induction over the trace. |
+| **S3 provider calls** | `stepProviderCallSafe_ensures` | Whenever `callProvider` is emitted, the session awaits the provider, its transcript is well-formed (what T2 used to assert at runtime is now a theorem about the loop), and the turn budget was respected. |
+| **S4 summarize** | `stepSummarizeSafe_ensures` | Whenever `summarize(cut)` is emitted, the cut is recorded in the phase, nontrivial, and a safe boundary of the transcript it will be applied to — composing with C1, the later `summaryReady` compaction provably preserves well-formedness. |
+| **S5 grant discipline** | `stepPermsStable_ensures` | Only a `promptAnswer` event ever changes the permission state — and (by the step function's shape) only via the verified `grantFor`/`grantAll` builders. |
+
+The proof composes per-transition lemmas (`AdvanceOk`, `FinishBatchOk`,
+`RequestProviderOk`, `ApprovedCurrentOk`, `StartCompactOk`, …) into one `StepOk`
+master lemma by case analysis over events. Cross-file contracts do the heavy
+lifting: imported functions are opaque axioms carrying exactly the
+`//@ requires`/`//@ ensures` proven in their home modules, so the session can only
+build transcripts through §2's builders and only update permissions through §1's
+grant builders. Per-call order (unknown → permission → arguments) is centralized
+in `verdictFor`, whose `ensures` is the per-call half of S1.
+
 ---
 
 ## Trust boundary (what is *not* verified)
 
 - **Providers, terminal UI, subprocess (`bash`), filesystem (`read/write/edit`),
   network (`web_fetch`)** — effectful shell.
-- **Interactive permission prompting + session-grant mutation** (`permission-gate.ts`)
-  — but every actual allow/deny flows through the verified `decide`.
-- **Boundary projections trusted to be faithful:** the shell does
-  `path.resolve().split('/')` (the in-core `normalize` does the rest); projects runtime
-  messages to the `TMsg` model (`toTranscript`); projects file content/strings to char
-  sequences via `[...s]` / `join("")` for `edit.ts` (the `replace_all` join stays shell);
-  and the real `Tool` flows at runtime while proofs reason about `Tool.name`.
+- **The interpreter** (`agent.ts`): trusted to perform exactly the commands the
+  session core emits, feed back honest events, and keep result *contents* aligned
+  with the core's batch order. The decision logic it used to own is gone — it
+  carries no gate, no pairing logic, no cut choice.
+- **The prompt UI** (`permission-gate.ts`): renders the question and parses
+  y/n/a/A; the consequence of each answer is a verified transition.
+- **Boundary projections trusted to be faithful:** each tool call is projected to
+  `SCall` (the `Req` via `buildReq`, plus `known`/`noPerm`/`argsOk` registry
+  facts); the shell mirror is projected to the `TMsg` model (`toTranscript`) and —
+  new with the session core — **checked at runtime against the verified model
+  transcript before every provider call** (`checkMirror`), so a drifted projection
+  fails loudly instead of silently; file content/strings to char sequences via
+  `[...s]` / `join("")` for `edit.ts`; and the real `Tool` flows at runtime while
+  proofs reason about `Tool.name`.
 - **Numbers** are mathematical integers (henri's only numbers are token/turn counts).
 
 ## Proof techniques of note
@@ -132,7 +180,7 @@ and `replaceFirst` for the single splice; the all-occurrence join stays shell.
 ## Reproduce
 
 ```sh
-npm run verify     # ../LemmaScript/tools/check.sh dafny over LemmaScript-files.txt — 76 VCs
+npm run verify     # ../LemmaScript/tools/check.sh dafny over LemmaScript-files.txt — 187 VCs
 npm run typecheck  # tsc --noEmit
 npm test           # runtime witnesses for the verified properties
 ```

@@ -147,6 +147,16 @@ function compact(msgs: seq<TMsg>, c: int): seq<TMsg>
   ([TMsg.user] + msgs[c..])
 }
 
+lemma compact_ensures(msgs: seq<TMsg>, c: int)
+  requires (0 <= c)
+  requires (c <= |msgs|)
+  ensures (wellFormed(msgs) ==> ((c == |msgs|) || headOk(msgs[c])) ==> wellFormed(compact(msgs, c)))
+{
+  if wellFormed(msgs) && ((c == |msgs|) || headOk(msgs[c])) {
+    compactPreservesWellFormed_ensures(msgs, c);
+  }
+}
+
 function wfFromImpliesLastOk(msgs: seq<TMsg>): bool
   requires (|msgs| > 0)
   requires wfFrom(msgs)
@@ -334,5 +344,226 @@ lemma compactConverges_ensures(msgs: seq<TMsg>, keepRecent: int)
 {
   if |msgs| > 0 {
     assert headOk(msgs[0]);
+  }
+}
+
+function initialMsgs(): seq<TMsg>
+{
+  []
+}
+
+lemma initialMsgs_ensures()
+  ensures wellFormed(initialMsgs())
+  ensures (|initialMsgs()| == 0)
+{
+}
+
+function appendUserMsg(msgs: seq<TMsg>): seq<TMsg>
+  requires wellFormed(msgs)
+{
+  (msgs + [TMsg.user])
+}
+
+lemma appendUserMsg_ensures(msgs: seq<TMsg>)
+  requires wellFormed(msgs)
+  ensures wellFormed(appendUserMsg(msgs))
+  ensures (|appendUserMsg(msgs)| == (|msgs| + 1))
+{
+  if |msgs| == 0 {
+    assert msgs + [TMsg.user] == [TMsg.user];
+  } else {
+    wfFromImpliesLastOk_ensures(msgs);
+    assert okAdjacent(msgs[|msgs| - 1], TMsg.user);
+    WfFromAppendOne(msgs, TMsg.user);
+    assert (msgs + [TMsg.user])[0] == msgs[0];
+  }
+}
+
+function appendAssistantDone(msgs: seq<TMsg>): seq<TMsg>
+  requires wellFormed(msgs)
+{
+  (msgs + [assistant([])])
+}
+
+lemma appendAssistantDone_ensures(msgs: seq<TMsg>)
+  requires wellFormed(msgs)
+  ensures wellFormed(appendAssistantDone(msgs))
+  ensures (|appendAssistantDone(msgs)| == (|msgs| + 1))
+{
+  if |msgs| == 0 {
+    assert msgs + [assistant([])] == [assistant([])];
+  } else {
+    wfFromImpliesLastOk_ensures(msgs);
+    assert okAdjacent(msgs[|msgs| - 1], assistant([]));
+    WfFromAppendOne(msgs, assistant([]));
+    assert (msgs + [assistant([])])[0] == msgs[0];
+  }
+}
+
+function appendAnsweredBlock(msgs: seq<TMsg>, calls: seq<TToolCall>, results: seq<TToolResult>): seq<TMsg>
+  requires wellFormed(msgs)
+  requires (|calls| > 0)
+  requires pairs(calls, results)
+{
+  appendPair(msgs, assistant(calls), tool(results))
+}
+
+lemma appendAnsweredBlock_ensures(msgs: seq<TMsg>, calls: seq<TToolCall>, results: seq<TToolResult>)
+  requires wellFormed(msgs)
+  requires (|calls| > 0)
+  requires pairs(calls, results)
+  ensures wellFormed(appendAnsweredBlock(msgs, calls, results))
+{
+  var a := assistant(calls);
+  var t := tool(results);
+  assert okAdjacent(a, t);
+  assert lastOk(t);
+  assert appendAnsweredBlock(msgs, calls, results) == appendPair(msgs, a, t);
+  assert appendPair(msgs, a, t) == msgs + [a, t];
+  if |msgs| == 0 {
+    assert msgs + [a, t] == [a, t];
+    assert (msgs + [a, t])[1..] == [t];
+  } else {
+    wfFromImpliesLastOk_ensures(msgs);
+    assert okAdjacent(msgs[|msgs| - 1], a);
+    wfFromAppendPair_ensures(msgs, a, t);
+    assert (msgs + [a, t])[0] == msgs[0];
+  }
+}
+
+function pairsTo(calls: seq<TToolCall>, results: seq<TToolResult>): bool
+  decreases |calls|
+{
+  if (|results| > |calls|) then
+    false
+  else
+    ((|results| == 0) || (if (|calls| == 0) then false else (if (results[0].toolCallId != calls[0].id) then false else pairsTo(calls[1..], results[1..]))))
+}
+
+function startResults(calls: seq<TToolCall>): seq<TToolResult>
+{
+  []
+}
+
+lemma startResults_ensures(calls: seq<TToolCall>)
+  ensures pairsTo(calls, startResults(calls))
+  ensures (|startResults(calls)| == 0)
+{
+}
+
+function pushResult(calls: seq<TToolCall>, done: seq<TToolResult>, isError: bool): seq<TToolResult>
+  requires pairsTo(calls, done)
+  requires (|done| < |calls|)
+{
+  (done + [TToolResult(calls[|done|].id, isError)])
+}
+
+lemma pushResult_ensures(calls: seq<TToolCall>, done: seq<TToolResult>, isError: bool)
+  requires pairsTo(calls, done)
+  requires (|done| < |calls|)
+  ensures pairsTo(calls, pushResult(calls, done, isError))
+  ensures (|pushResult(calls, done, isError)| == (|done| + 1))
+  ensures ((|pushResult(calls, done, isError)| == |calls|) ==> pairs(calls, pushResult(calls, done, isError)))
+{
+  PairsToSnoc(calls, done, isError);
+  if |done| + 1 == |calls| {
+    PairsToPairs(calls, pushResult(calls, done, isError));
+  }
+}
+
+function fillRest(calls: seq<TToolCall>, done: seq<TToolResult>): seq<TToolResult>
+  requires (|done| <= |calls|)
+  decreases (|calls| - |done|)
+{
+  if (|done| == |calls|) then
+    done
+  else
+    fillRest(calls, (done + [TToolResult(calls[|done|].id, true)]))
+}
+
+lemma fillRest_ensures(calls: seq<TToolCall>, done: seq<TToolResult>)
+  requires (|done| <= |calls|)
+  decreases (|calls| - |done|)
+  ensures (pairsTo(calls, done) ==> pairs(calls, fillRest(calls, done)))
+{
+  if |done| == |calls| {
+    if pairsTo(calls, done) {
+      PairsToPairs(calls, done);
+    }
+  } else {
+    if pairsTo(calls, done) {
+      PairsToSnoc(calls, done, true);
+    }
+    fillRest_ensures(calls, done + [TToolResult(calls[|done|].id, true)]);
+  }
+}
+
+function pairsToComplete(calls: seq<TToolCall>, results: seq<TToolResult>): bool
+  requires pairsTo(calls, results)
+  requires (|results| == |calls|)
+{
+  true
+}
+
+lemma pairsToComplete_ensures(calls: seq<TToolCall>, results: seq<TToolResult>)
+  requires pairsTo(calls, results)
+  requires (|results| == |calls|)
+  ensures pairs(calls, results)
+{
+  PairsToPairs(calls, results);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// .dfy-only helpers for the session builders — statements over list append,
+// which //@ specs cannot express.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// Extending a consistent transcript by ONE connected, valid-last message
+// preserves consistency (the single-message mirror of wfFromAppendPair).
+lemma WfFromAppendOne(msgs: seq<TMsg>, m: TMsg)
+  requires (|msgs| > 0)
+  requires wfFrom(msgs)
+  requires okAdjacent(msgs[(|msgs| - 1)], m)
+  requires lastOk(m)
+  ensures wfFrom(msgs + [m])
+  decreases |msgs|
+{
+  if |msgs| == 1 {
+    assert (msgs + [m])[1..] == [m];
+  } else {
+    assert msgs[1..][|msgs[1..]| - 1] == msgs[|msgs| - 1];
+    WfFromAppendOne(msgs[1..], m);
+    assert (msgs + [m])[1..] == msgs[1..] + [m];
+  }
+}
+
+// Answering the next unanswered call keeps the partial result block paired.
+lemma PairsToSnoc(calls: seq<TToolCall>, done: seq<TToolResult>, isError: bool)
+  requires pairsTo(calls, done)
+  requires (|done| < |calls|)
+  ensures pairsTo(calls, done + [TToolResult(calls[|done|].id, isError)])
+  decreases |done|
+{
+  var r := TToolResult(calls[|done|].id, isError);
+  if |done| == 0 {
+    assert (done + [r])[0] == r;
+    assert (done + [r])[1..] == [];
+  } else {
+    PairsToSnoc(calls[1..], done[1..], isError);
+    assert calls[1..][|done[1..]|].id == calls[|done|].id;
+    assert (done + [r])[1..] == done[1..] + [r];
+  }
+}
+
+// A complete partial pairing IS the full pairing (pairsTo at full length = pairs).
+lemma PairsToPairs(calls: seq<TToolCall>, results: seq<TToolResult>)
+  requires pairsTo(calls, results)
+  requires (|results| == |calls|)
+  ensures pairs(calls, results)
+  decreases |calls|
+{
+  if |calls| == 0 {
+  } else {
+    PairsToPairs(calls[1..], results[1..]);
   }
 }

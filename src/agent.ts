@@ -1,10 +1,18 @@
-// The main agent loop.
+// The agent shell — a command interpreter over the VERIFIED session core.
 //
-// The shell that drives the LLM. It gates every tool through the verified
-// permission decision (PermissionGate -> decide) and threads tool results back
-// using the verified protocol model (transcript.pairs / wellFormed) as a live
-// invariant: if the loop ever produced a malformed transcript, we'd throw before
-// sending it to the provider.
+// The loop's decisions live in session.ts (a pure, proven step function); this
+// file only performs effects. It feeds SEvents into step(), performs the
+// SCommands that come back (call the provider, execute a tool, ask the user,
+// summarize), and mirrors the model transcript with real message contents.
+//
+// What the shell is trusted for (and nothing else):
+//   - the projection: buildReq / known / noPerm / argsOk on each tool call,
+//     and toTranscript (mirror ↔ model) — checked at runtime before every
+//     provider request (checkMirror);
+//   - performing exactly the commands the core emits, feeding back honest
+//     events, and keeping result contents aligned with the core's batch order.
+// Everything else — gating, grants, pairing, well-formedness, compaction cuts,
+// interrupt handling — is the verified core's (session.ts: S1–S5).
 
 import * as readline from "node:readline/promises";
 import { emitKeypressEvents } from "node:readline";
@@ -12,8 +20,19 @@ import { assistantMessage, toolResultMessage, userMessage, type Message, type To
 import type { Provider } from "./providers/index.ts";
 import { getDefaultTools, type Tool } from "./tools/base.ts";
 import { mergePerms, mergeSystemPrompt, mergeTools, type Hook, type PermConfig } from "./hooks.ts";
-import { DEFAULT_AUTO_ALLOW_CWD, DEFAULT_PATH_BASED, PermissionGate, emptyState } from "./permission-gate.ts";
-import { findCut, pairs, wellFormed, type TMsg } from "./transcript.ts";
+import { DEFAULT_AUTO_ALLOW_CWD, DEFAULT_PATH_BASED, buildReq, currentCwd, emptyState, promptUser } from "./permission-gate.ts";
+import type { TMsg } from "./transcript.ts";
+import {
+  initialSession,
+  step,
+  wellFormedModel,
+  type Answer,
+  type SCall,
+  type SCommand,
+  type SEvent,
+  type Session,
+  type StepOut,
+} from "./session.ts";
 import { Spinner, color, panel, truncate } from "./ui.ts";
 
 function summarize(tools: Tool[], perms: PermConfig): { toolLines: string[]; permLines: string[] } {
@@ -44,7 +63,8 @@ Be concise and direct in your responses.`;
   return extra ? `${base}\n${extra}` : base;
 }
 
-/** Project runtime messages onto the verified protocol model for the invariant check. */
+/** Project runtime messages onto the verified protocol model — the mirror side
+ *  of the faithfulness check (the model side is the core's own st.msgs). */
 function toTranscript(messages: Message[]): TMsg[] {
   return messages.map((m): TMsg => {
     if (m.role === "assistant") return { role: "assistant", toolCalls: m.toolCalls.map((c) => ({ id: c.id, name: c.name })) };
@@ -53,7 +73,7 @@ function toTranscript(messages: Message[]): TMsg[] {
   });
 }
 
-// ── /compact summarization (shell; the cut safety is verified, see transcript.ts) ──
+// ── /compact summarization prompts (shell; cut safety is verified, S4 + C1) ──
 
 const SUMMARY_SYSTEM =
   "You are a context-summarization assistant. Read the conversation and produce a " +
@@ -103,154 +123,264 @@ function renderForSummary(messages: Message[]): string {
 }
 
 export class Agent {
+  /** The verified model state — every transition goes through session.step. */
+  st: Session;
+  /** The shell mirror: the model's transcript with real contents attached. */
+  messages: Message[] = [];
+
   private tools: Tool[];
   private toolsByName: Map<string, Tool>;
+  private pathBased: Set<string>;
   private systemPrompt: string;
-  messages: Message[] = [];
   private spinner = new Spinner();
 
-  turns = 0;
+  // The current batch's real calls (args live here; the core sees only SCalls)
+  // and the result contents accumulated in the core's batch order.
+  private pendingCalls: ToolCall[] = [];
+  private pendingResults: ToolResult[] = [];
+
   inputTokens = 0;
   outputTokens = 0;
-  /** Input tokens reported by the most recent response ≈ current context size. */
-  private lastContextTokens = 0;
 
   constructor(
     private provider: Provider,
     tools: Tool[],
     perms: PermConfig,
-    private gate: PermissionGate,
-    private maxTurns: number | undefined,
+    initial: Session,
+    private ask: (q: string) => Promise<string>,
     extraSystemPrompt: string | undefined,
-    private compactKeep: number,
-    private autoCompactAt: number,
   ) {
     this.tools = tools;
     this.toolsByName = new Map(tools.map((t) => [t.name, t]));
+    this.pathBased = perms.pathBased;
     this.systemPrompt = buildSystemPrompt(tools, perms, extraSystemPrompt);
+    this.st = initial;
   }
 
-  /**
-   * Process a user message and stream the response. Returns false if max turns
-   * hit. `signal` (Esc) interrupts: a mid-stream abort keeps the partial answer
-   * as context with no tool calls; a mid-tool abort keeps every call paired with
-   * an `[interrupted]` result. Either way the transcript stays well-formed.
-   */
-  async chat(userInput: string, signal?: AbortSignal): Promise<boolean> {
+  get turns(): number {
+    return this.st.turns;
+  }
+
+  /** Process a user message: one userInput event; the core drives everything else. */
+  async chat(userInput: string, signal?: AbortSignal): Promise<void> {
     this.messages.push(userMessage(userInput));
-
-    for (;;) {
-      if (this.maxTurns && this.turns >= this.maxTurns) {
-        console.log(color.yellow(`\nMax turns (${this.maxTurns}) reached.`));
-        return false;
-      }
-      this.turns += 1;
-
-      let responseText = "";
-      let toolCalls: ToolCall[] = [];
-
-      this.spinner.start("Thinking… (Esc to interrupt)");
-      let printed = false;
-      let interrupted = false;
-      try {
-        for await (const event of this.provider.stream(this.messages, this.tools, this.systemPrompt, signal)) {
-          if (event.text) {
-            this.spinner.stop();
-            process.stdout.write(event.text);
-            responseText += event.text;
-            printed = true;
-          }
-          if (event.toolUseStarted) this.spinner.stop();
-          if (event.toolCalls) toolCalls = event.toolCalls;
-          if (event.usage) {
-            this.inputTokens += event.usage.inputTokens;
-            this.outputTokens += event.usage.outputTokens;
-            // The input tokens of the latest response ≈ the whole context the
-            // model just read — the signal auto-compaction watches.
-            this.lastContextTokens = event.usage.inputTokens;
-          }
-        }
-      } catch (e) {
-        // An Esc-abort surfaces as a stream rejection; anything else is real.
-        if (!signal?.aborted) throw e;
-        interrupted = true;
-      }
-      this.spinner.stop();
-      if (printed) process.stdout.write("\n");
-
-      if (interrupted) {
-        // Keep the partial answer as context — or an [interrupted] marker if Esc
-        // landed before any token streamed (an empty assistant message is
-        // rejected by the provider and breaks role alternation). Drop any
-        // incomplete tool calls so no tool_use is left unanswered.
-        this.messages.push(assistantMessage(responseText || "[interrupted]", []));
-        console.log(color.yellow("[interrupted]"));
-        return true;
-      }
-
-      this.messages.push(assistantMessage(responseText, toolCalls));
-      if (toolCalls.length === 0) break;
-
-      const results = await this.runToolCalls(toolCalls, signal);
-
-      // Verified invariant: results pair 1:1 with calls, ids in order (T1).
-      if (!pairs(toolCalls.map((c) => ({ id: c.id, name: c.name })), results.map((r) => ({ toolCallId: r.toolCallId, isError: r.isError })))) {
-        throw new Error("internal: tool results do not pair with tool calls");
-      }
-      this.messages.push(toolResultMessage(results));
-
-      // Verified invariant: the conversation we will send next is well-formed (T2).
-      if (!wellFormed(toTranscript(this.messages))) {
-        throw new Error("internal: malformed conversation transcript");
-      }
-
-      // Interrupted during the tool batch: every call already has a paired
-      // result above, so the transcript is well-formed — stop and hand back.
-      if (signal?.aborted) {
-        console.log(color.yellow("[interrupted]"));
-        return true;
-      }
+    const out = await this.feed({ kind: "userInput" }, signal);
+    if (out.cmds.length === 0 && this.st.maxTurns > 0 && this.st.turns >= this.st.maxTurns) {
+      console.log(color.yellow(`\nMax turns (${this.st.maxTurns}) reached.`));
     }
-    // Turn finished normally (assistant answered with no tool calls). If the
-    // context has grown past the threshold, compact before the next prompt.
-    await this.maybeAutoCompact(signal);
-    return true;
   }
 
-  /** Auto-compact once the latest context size crosses the configured threshold. */
-  private async maybeAutoCompact(signal?: AbortSignal): Promise<void> {
-    if (this.autoCompactAt <= 0 || this.lastContextTokens <= this.autoCompactAt) return;
-    // If nothing can be dropped (findCut keeps everything), don't loop/spend a
-    // summarization call — a single oversized recent message can't be compacted.
-    if (findCut(toTranscript(this.messages), this.compactKeep) === 0) return;
-    console.log(
-      color.dim(`\n[auto-compacting: context ~${this.lastContextTokens} tokens > ${this.autoCompactAt}]`),
-    );
-    await this.compact(undefined, signal);
-  }
-
-  /**
-   * /compact — summarize an old prefix and keep a recent suffix. `keepRecent`
-   * (default: configured) recent messages are retained. The cut index comes from
-   * the verified findCut, so it never starts the kept suffix on an orphan
-   * tool_result; prepending the `user` summary preserves well-formedness
-   * (transcript.ts: C1), re-checked here as a runtime invariant.
-   */
+  /** /compact [n] — one compactRequest event; cut choice and safety are the core's. */
   async compact(keepRecentArg: number | undefined, signal?: AbortSignal): Promise<void> {
-    const keepRecent = keepRecentArg ?? this.compactKeep;
-    const before = this.messages.length;
-    if (before === 0) {
+    const keepRecent = keepRecentArg ?? this.st.compactKeep;
+    if (this.messages.length === 0) {
       console.log(color.dim("Nothing to compact (no history yet)."));
       return;
     }
+    const out = await this.feed({ kind: "compactRequest", keep: keepRecent }, signal);
+    if (!out.cmds.some((c) => c.kind === "summarize")) {
+      console.log(color.dim(`Nothing to compact (keeping ${keepRecent}; only ${this.messages.length} message(s)).`));
+    }
+  }
 
-    // Verified cut: where the retained suffix begins. snapBack_ensures guarantees
-    // this is never a tool message (no orphaned tool_result).
-    const cut = findCut(toTranscript(this.messages), keepRecent);
-    if (cut === 0) {
-      console.log(color.dim(`Nothing to compact (keeping ${keepRecent}; only ${before} message(s)).`));
+  // ── The interpreter ─────────────────────────────────────────────────────────
+
+  /** Feed one event into the verified core, sync the mirror, perform the
+   *  resulting commands (which feed further events). Returns this event's StepOut. */
+  private async feed(ev: SEvent, signal?: AbortSignal): Promise<StepOut> {
+    const prevModelLen = this.st.msgs.length;
+    const out = step(this.st, ev);
+    this.st = out.st;
+
+    // Skipped calls first: the core already recorded their (error) results in
+    // this step — attach the contents so the mirror stays in batch order.
+    for (const cmd of out.cmds) {
+      if (cmd.kind === "skipTool") this.recordSkip(cmd);
+    }
+
+    // If the core appended the answered block (assistant + tool) in this step,
+    // the batch is closed: mirror the tool message with the collected contents.
+    if (this.st.msgs.length >= prevModelLen + 2) {
+      this.messages.push(toolResultMessage(this.pendingResults));
+      this.pendingResults = [];
+      this.pendingCalls = [];
+    }
+
+    // Then the (at most one) effectful command.
+    for (const cmd of out.cmds) {
+      if (cmd.kind === "summarize" && ev.kind === "providerReply") {
+        console.log(color.dim(`\n[auto-compacting: context ~${this.st.lastContextTokens} tokens > ${this.st.autoCompactAt}]`));
+      }
+      await this.perform(cmd, signal);
+    }
+    return out;
+  }
+
+  private async perform(cmd: SCommand, signal?: AbortSignal): Promise<void> {
+    switch (cmd.kind) {
+      case "skipTool":
+        return; // already handled in feed()
+      case "callProvider":
+        return this.performProviderCall(signal);
+      case "execTool":
+        return this.performExec(cmd.call, signal);
+      case "askUser":
+        return this.performAsk(cmd.call, signal);
+      case "summarize":
+        return this.performSummarize(cmd.cut, signal);
+    }
+  }
+
+  /** The runtime faithfulness check of the trusted projection: the mirror,
+   *  projected onto the model, must BE the core's transcript. */
+  private checkMirror(): void {
+    const projected = toTranscript(this.messages);
+    if (!wellFormedModel(projected)) {
+      throw new Error("internal: mirror transcript malformed");
+    }
+    if (JSON.stringify(projected) !== JSON.stringify(this.st.msgs)) {
+      throw new Error("internal: shell mirror diverged from the verified model");
+    }
+  }
+
+  private projectCall(tc: ToolCall): SCall {
+    const tool = this.toolsByName.get(tc.name);
+    const required = tool ? ((tool.parameters as { required?: string[] }).required ?? []) : [];
+    return {
+      id: tc.id,
+      name: tc.name,
+      req: buildReq(this.pathBased, tc.name, tc),
+      known: tool !== undefined,
+      noPerm: tool !== undefined && !tool.requiresPermission,
+      argsOk: tool !== undefined && required.every((a) => a in tc.args),
+    };
+  }
+
+  private recordSkip(cmd: { call: SCall; reason: string }): void {
+    const { call, reason } = cmd;
+    let content: string;
+    if (reason === "skipUnknown") {
+      content = `[error: unknown tool '${call.name}']`;
+    } else if (reason === "skipDenied") {
+      console.log(color.dim(`Auto-denied: ${call.name}`));
+      content = "[permission denied by user]";
+    } else {
+      const tc = this.pendingCalls.find((c) => c.id === call.id);
+      const tool = this.toolsByName.get(call.name);
+      const required = tool ? ((tool.parameters as { required?: string[] }).required ?? []) : [];
+      const missing = tc ? required.filter((a) => !(a in tc.args)) : required;
+      content = `[error: missing required arguments: ${missing.join(", ")}]`;
+    }
+    this.pendingResults.push({ toolCallId: call.id, content, isError: true });
+  }
+
+  private async performProviderCall(signal?: AbortSignal): Promise<void> {
+    this.checkMirror();
+
+    let responseText = "";
+    let toolCalls: ToolCall[] = [];
+    let contextTokens = this.st.lastContextTokens;
+
+    this.spinner.start("Thinking… (Esc to interrupt)");
+    let printed = false;
+    let interrupted = false;
+    try {
+      for await (const event of this.provider.stream(this.messages, this.tools, this.systemPrompt, signal)) {
+        if (event.text) {
+          this.spinner.stop();
+          process.stdout.write(event.text);
+          responseText += event.text;
+          printed = true;
+        }
+        if (event.toolUseStarted) this.spinner.stop();
+        if (event.toolCalls) toolCalls = event.toolCalls;
+        if (event.usage) {
+          this.inputTokens += event.usage.inputTokens;
+          this.outputTokens += event.usage.outputTokens;
+          // The input tokens of the latest response ≈ the whole context the
+          // model just read — the signal auto-compaction watches.
+          contextTokens = event.usage.inputTokens;
+        }
+      }
+    } catch (e) {
+      // An Esc-abort surfaces as a stream rejection; anything else is real.
+      if (!signal?.aborted) throw e;
+      interrupted = true;
+    }
+    this.spinner.stop();
+    if (printed) process.stdout.write("\n");
+
+    if (interrupted) {
+      // Keep the partial answer as context — or an [interrupted] marker if Esc
+      // landed before any token streamed. Incomplete tool calls are dropped;
+      // the core appends the no-calls assistant turn (its well-formedness is
+      // S2's, not a comment's).
+      this.messages.push(assistantMessage(responseText || "[interrupted]", []));
+      console.log(color.yellow("[interrupted]"));
+      await this.feed({ kind: "providerInterrupted" }, signal);
       return;
     }
+
+    this.messages.push(assistantMessage(responseText, toolCalls));
+    this.pendingCalls = toolCalls;
+    this.pendingResults = [];
+    const calls = toolCalls.map((tc) => this.projectCall(tc));
+    await this.feed({ kind: "providerReply", calls, contextTokens }, signal);
+  }
+
+  private async performExec(call: SCall, signal?: AbortSignal): Promise<void> {
+    // Esc landed before this call started: answer the whole rest as interrupted.
+    if (signal?.aborted) {
+      return this.interruptBatch(signal);
+    }
+    const tc = this.pendingCalls.find((c) => c.id === call.id);
+    const tool = this.toolsByName.get(call.name);
+    if (!tc || !tool) {
+      // Unreachable if the projection is faithful (the core only executes known
+      // calls from the current batch) — surface loudly rather than guess.
+      throw new Error(`internal: execTool for unknown call '${call.name}' (${call.id})`);
+    }
+    this.showToolExecution(tool, tc);
+    this.spinner.start("Executing… (Esc to interrupt)");
+    const content = await tool.execute(tc.args, signal);
+    this.spinner.stop();
+    this.showToolResult(content);
+    // If Esc landed while this tool ran, it returned "[interrupted…]"; the
+    // result stays paired, and the NEXT execTool (if any) folds the rest.
+    const isError = signal?.aborted ?? false;
+    this.pendingResults.push({ toolCallId: call.id, content, isError });
+    await this.feed({ kind: "toolDone", isError }, signal);
+  }
+
+  private async performAsk(call: SCall, signal?: AbortSignal): Promise<void> {
+    if (signal?.aborted) {
+      return this.interruptBatch(signal);
+    }
+    const tc = this.pendingCalls.find((c) => c.id === call.id);
+    const tool = this.toolsByName.get(call.name);
+    if (!tc || !tool) {
+      throw new Error(`internal: askUser for unknown call '${call.name}' (${call.id})`);
+    }
+    const answer: Answer = await promptUser(this.ask, this.st.cwd, tool, tc, call.req);
+    if (answer === "no") {
+      this.pendingResults.push({ toolCallId: call.id, content: "[permission denied by user]", isError: true });
+    }
+    await this.feed({ kind: "promptAnswer", answer }, signal);
+  }
+
+  /** Esc mid-batch: every not-yet-executed call gets a paired error result —
+   *  the shell records the contents; the pairing is the core's (fillRest). */
+  private async interruptBatch(signal?: AbortSignal): Promise<void> {
+    while (this.pendingResults.length < this.pendingCalls.length) {
+      const tc = this.pendingCalls[this.pendingResults.length];
+      this.pendingResults.push({ toolCallId: tc.id, content: "[interrupted by user]", isError: true });
+    }
+    console.log(color.yellow("[interrupted]"));
+    await this.feed({ kind: "batchInterrupted" }, signal);
+  }
+
+  private async performSummarize(cut: number, signal?: AbortSignal): Promise<void> {
+    const before = this.messages.length;
     const toSummarize = this.messages.slice(0, cut);
 
     this.spinner.start("Summarizing… (Esc to interrupt)");
@@ -268,6 +398,7 @@ export class Agent {
       this.spinner.stop();
       if (signal?.aborted) {
         console.log(color.yellow("[compaction interrupted — history unchanged]"));
+        await this.feed({ kind: "summaryReady", ok: false }, signal);
         return;
       }
       throw e;
@@ -277,18 +408,13 @@ export class Agent {
     summary = summary.trim();
     if (!summary) {
       console.log(color.yellow("Compaction skipped: the summary came back empty; history unchanged."));
+      await this.feed({ kind: "summaryReady", ok: false }, signal);
       return;
     }
 
-    const summaryMsg = userMessage(`[Earlier conversation compacted to a summary]\n\n${summary}`);
-    const newMessages = [summaryMsg, ...this.messages.slice(cut)];
-
-    // Verified invariant (C1): compaction preserves well-formedness — no orphan
-    // tool_result, no split tool_use/tool_result pair.
-    if (!wellFormed(toTranscript(newMessages))) {
-      throw new Error("internal: compaction produced a malformed transcript");
-    }
-    this.messages = newMessages;
+    // Mirror the verified compaction (C1/S4): summary message + retained suffix.
+    this.messages = [userMessage(`[Earlier conversation compacted to a summary]\n\n${summary}`), ...this.messages.slice(cut)];
+    await this.feed({ kind: "summaryReady", ok: true }, signal);
 
     console.log(
       panel(
@@ -297,42 +423,6 @@ export class Agent {
         { title: "Compacted", border: "blue" },
       ),
     );
-  }
-
-  private async runToolCalls(toolCalls: ToolCall[], signal?: AbortSignal): Promise<ToolResult[]> {
-    const results: ToolResult[] = [];
-    for (const call of toolCalls) {
-      // Interrupted: don't start this call, but still emit a paired result so the
-      // batch keeps one result per call in order (transcript T1).
-      if (signal?.aborted) {
-        results.push({ toolCallId: call.id, content: "[interrupted by user]", isError: true });
-        continue;
-      }
-      const tool = this.toolsByName.get(call.name);
-      if (!tool) {
-        results.push({ toolCallId: call.id, content: `[error: unknown tool '${call.name}']`, isError: true });
-        continue;
-      }
-      if (!(await this.gate.check(tool, call))) {
-        results.push({ toolCallId: call.id, content: "[permission denied by user]", isError: true });
-        continue;
-      }
-      const required = (tool.parameters as { required?: string[] }).required ?? [];
-      const missing = required.filter((a) => !(a in call.args));
-      if (missing.length) {
-        results.push({ toolCallId: call.id, content: `[error: missing required arguments: ${missing.join(", ")}]`, isError: true });
-        continue;
-      }
-      this.showToolExecution(tool, call);
-      this.spinner.start("Executing… (Esc to interrupt)");
-      const content = await tool.execute(call.args, signal);
-      this.spinner.stop();
-      this.showToolResult(content);
-      // If Esc landed while this tool ran, the tool returned "[interrupted…]";
-      // mark it an error result (still paired) and let the loop wind down.
-      results.push({ toolCallId: call.id, content, isError: signal?.aborted ?? false });
-    }
-    return results;
   }
 
   private showToolExecution(tool: Tool, call: ToolCall): void {
@@ -396,9 +486,10 @@ export async function runAgent(opts: RunOptions): Promise<void> {
     });
   }
 
+  // The verified initial state (inv proven by initialSession's ensures).
   const state = emptyState(perms.autoAllow, perms.autoAllowCwd, perms.rejectPrompts);
-  const gate = new PermissionGate(state, perms.pathBased, ask);
-  const agent = new Agent(opts.provider, tools, perms, gate, opts.maxTurns, extraPrompt, opts.compactKeep, opts.autoCompactAt);
+  const initial = initialSession(state, currentCwd(), opts.maxTurns ?? 0, opts.compactKeep, opts.autoCompactAt);
+  const agent = new Agent(opts.provider, tools, perms, initial, ask, extraPrompt);
 
   console.log(
     panel(

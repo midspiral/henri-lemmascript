@@ -200,3 +200,51 @@ export function rejectIsDenyOnly(st: PermState, st2: PermState, cwd: string[], r
   //@ ensures \result !== "Prompt"
   return decide(st2, cwd, req);
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Session grant builders — the ONLY state updates the verified session core
+// (session.ts) performs on a PermState. Each carries its justification as a
+// //@ ensures so the contract LIFTS across the file boundary: session.dfy sees
+// these as axioms with exactly these requires/ensures (proven here, in
+// permissions.dfy). This is what makes the interactive "(a)lways" / "(A)ll"
+// grant recording a VERIFIED transition instead of an ad-hoc shell mutation.
+// ═══════════════════════════════════════════════════════════════════════════
+
+// G1 — recording the "always allow" grant for `req` justifies `req`: after
+// grantFor, isAllowed holds for exactly the request the user approved (and the
+// prompting policy is untouched).
+export function grantFor(st: PermState, cwd: string[], req: Req): PermState {
+  //@ verify
+  //@ ensures isAllowed(\result, cwd, req)
+  //@ ensures \result.rejectPrompts === st.rejectPrompts
+  //@ ensures \result.autoAllow === st.autoAllow
+  //@ ensures \result.autoAllowCwd === st.autoAllowCwd
+  //@ ensures \result.allowAll === st.allowAll
+  switch (req.kind) {
+    case "bash":
+      return { ...st, allowedBashCommands: new Set(st.allowedBashCommands).add(req.command) };
+    case "path":
+      return { ...st, allowedPaths: [...st.allowedPaths, { tool: req.tool, segs: resolvePath(cwd, req.segs, req.absolute) }] };
+    case "other":
+      return { ...st, allowedTools: new Set(st.allowedTools).add(req.tool) };
+  }
+}
+
+// G1, session-wide — recording "allow All" justifies every request; cwd/req
+// witness the one being approved right now.
+export function grantAll(st: PermState, cwd: string[], req: Req): PermState {
+  //@ verify
+  //@ ensures isAllowed(\result, cwd, req)
+  //@ ensures \result.rejectPrompts === st.rejectPrompts
+  return { ...st, allowAll: true };
+}
+
+// G2 — a grant never revokes: any request justified before grantFor stays
+// justified after (composes with G1: grants only ever widen access; with P4:
+// they never change the prompting policy).
+export function grantPreservesAllowed(st: PermState, cwd: string[], req: Req, pcwd: string[], prior: Req): boolean {
+  //@ verify
+  //@ requires isAllowed(st, pcwd, prior)
+  //@ ensures isAllowed(grantFor(st, cwd, req), pcwd, prior)
+  return true;
+}

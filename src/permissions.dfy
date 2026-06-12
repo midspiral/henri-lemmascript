@@ -226,3 +226,89 @@ lemma P3_GrantPathMonotone(st: PermState, cwd: seq<string>, req: Req, g: PathGra
     case other(_) =>
   }
 }
+
+function grantFor(st: PermState, cwd: seq<string>, req: Req): PermState
+{
+  match req {
+    case bash(i_req_command) =>
+      st.(allowedBashCommands := (st.allowedBashCommands + {i_req_command}))
+    case path(i_req_tool, i_req_segs, i_req_absolute) =>
+      st.(allowedPaths := (st.allowedPaths + [PathGrant(i_req_tool, resolvePath(cwd, i_req_segs, i_req_absolute))]))
+    case other(i_req_tool) =>
+      st.(allowedTools := (st.allowedTools + {i_req_tool}))
+  }
+}
+
+lemma grantFor_ensures(st: PermState, cwd: seq<string>, req: Req)
+  ensures isAllowed(grantFor(st, cwd, req), cwd, req)
+  ensures (grantFor(st, cwd, req).rejectPrompts == st.rejectPrompts)
+  ensures (grantFor(st, cwd, req).autoAllow == st.autoAllow)
+  ensures (grantFor(st, cwd, req).autoAllowCwd == st.autoAllowCwd)
+  ensures (grantFor(st, cwd, req).allowAll == st.allowAll)
+{
+  match req {
+    case path(tool, segs, absolute) =>
+      PathGrantedAppendHit(st.allowedPaths, tool, resolvePath(cwd, segs, absolute));
+    case bash(_) =>
+    case other(_) =>
+  }
+}
+
+function grantAll(st: PermState, cwd: seq<string>, req: Req): PermState
+{
+  st.(allowAll := true)
+}
+
+lemma grantAll_ensures(st: PermState, cwd: seq<string>, req: Req)
+  ensures isAllowed(grantAll(st, cwd, req), cwd, req)
+  ensures (grantAll(st, cwd, req).rejectPrompts == st.rejectPrompts)
+{
+}
+
+function grantPreservesAllowed(st: PermState, cwd: seq<string>, req: Req, pcwd: seq<string>, prior: Req): bool
+  requires isAllowed(st, pcwd, prior)
+{
+  true
+}
+
+lemma grantPreservesAllowed_ensures(st: PermState, cwd: seq<string>, req: Req, pcwd: seq<string>, prior: Req)
+  requires isAllowed(st, pcwd, prior)
+  ensures isAllowed(grantFor(st, cwd, req), pcwd, prior)
+{
+  match req {
+    case path(tool, segs, absolute) =>
+      P3_GrantPathMonotone(st, pcwd, prior, PathGrant(tool, resolvePath(cwd, segs, absolute)));
+    case bash(_) =>
+      grantMonotone_ensures(st, grantFor(st, cwd, req), pcwd, prior);
+    case other(_) =>
+      grantMonotone_ensures(st, grantFor(st, cwd, req), pcwd, prior);
+  }
+}
+
+// ── .dfy-only helpers for the grant builders ─────────────────────────────────
+
+// seqEq is reflexive (the structural equality used by pathGranted).
+lemma SeqEqRefl(a: seq<string>)
+  ensures seqEq(a, a)
+  decreases |a|
+{
+  if |a| == 0 {
+  } else {
+    SeqEqRefl(a[1..]);
+  }
+}
+
+// The grant just appended covers exactly the (tool, resolved path) it records.
+lemma PathGrantedAppendHit(grants: seq<PathGrant>, tool: string, resolved: seq<string>)
+  ensures pathGranted(grants + [PathGrant(tool, resolved)], tool, resolved)
+  decreases |grants|
+{
+  if |grants| == 0 {
+    assert grants + [PathGrant(tool, resolved)] == [PathGrant(tool, resolved)];
+    SeqEqRefl(resolved);
+  } else {
+    PathGrantedAppendHit(grants[1..], tool, resolved);
+    assert (grants + [PathGrant(tool, resolved)])[0] == grants[0];
+    assert (grants + [PathGrant(tool, resolved)])[1..] == grants[1..] + [PathGrant(tool, resolved)];
+  }
+}
