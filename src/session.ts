@@ -725,3 +725,38 @@ export function stepMsgsBounded(st: Session, ev: SEvent): boolean {
   //@ ensures ev.kind === "summaryReady" ==> step(st, ev).st.msgs.length <= st.msgs.length
   return true;
 }
+
+// ═══════════════════════════════════════════════════════════════════════════
+// The trace theorem — S2 composed over whole event sequences.
+// ═══════════════════════════════════════════════════════════════════════════
+
+/** step, totalized: outside inv an event is a no-op. S2 makes non-inv states
+ *  unreachable, so on every state the system can actually be in, stepTotal IS
+ *  step — the guard only exists so the trace fold needs no precondition. */
+export function stepTotal(st: Session, ev: SEvent): StepOut {
+  //@ verify
+  //@ ensures inv(st) ==> inv(\result.st)
+  if (!inv(st)) return { st, cmds: [] };
+  return step(st, ev);
+}
+
+/** Fold a whole event trace. The commands of each step are the interpreter's
+ *  to perform; the trace theorem is about the state evolution. */
+export function runSession(st: Session, events: SEvent[]): Session {
+  //@ verify
+  //@ decreases events.length
+  //@ ensures inv(st) ==> inv(\result)
+  if (events.length === 0) return st;
+  return runSession(stepTotal(st, events[0]).st, events.slice(1));
+}
+
+// T∞ (the capstone). EVERY state reachable from the initial session — by ANY
+// event sequence whatsoever: any provider outputs, any prompt answers, any
+// interleaving of interrupts and compactions — satisfies the session
+// invariant. "Every reachable state is safe" is a theorem, not an induction
+// in prose; and per-step, S1–S13 hold at each of those states.
+export function traceFromInitialSafe(perms: PermState, cwd: string[], maxTurns: number, compactKeep: number, autoCompactAt: number, events: SEvent[]): boolean {
+  //@ verify
+  //@ ensures inv(runSession(initialSession(perms, cwd, maxTurns, compactKeep, autoCompactAt), events))
+  return true;
+}

@@ -10,6 +10,7 @@ import {
   initialSession,
   inv,
   justified,
+  runSession,
   step,
   type SCall,
   type SEvent,
@@ -204,6 +205,21 @@ let g1 = stepChecked(g0, { kind: "userInput" });
 let g2 = stepChecked(g1.st, { kind: "providerReply", calls: [bashEcho], contextTokens: 10 });
 let g3 = stepChecked(g2.st, { kind: "promptAnswer", answer: "always" });
 check("S12: grant adds exactly the approved req", isAllowed(g3.st.perms, cwd, bashEcho.req) && !isAllowed(g3.st.perms, cwd, unrelated));
+
+// T∞ witnessed: fold a whole messy trace — prompts, executions, a wrong-phase
+// no-op, a compaction — and the resulting state still satisfies inv.
+const trace: SEvent[] = [
+  { kind: "userInput" },
+  { kind: "providerReply", calls: [bashEcho, readIn], contextTokens: 10 },
+  { kind: "promptAnswer", answer: "yes" },
+  { kind: "toolDone", isError: false },
+  { kind: "toolDone", isError: false },
+  { kind: "providerReply", calls: [], contextTokens: 20 },
+  { kind: "batchInterrupted" }, // wrong phase: a no-op
+  { kind: "compactRequest", keep: 0 },
+  { kind: "summaryReady", ok: true },
+];
+check("T∞: inv holds along an arbitrary trace", inv(runSession(initialSession(freshState(), cwd, 0, 6, 0), trace)));
 
 // Wrong-phase events are no-ops (step is total).
 let noop = stepChecked(st, { kind: "toolDone", isError: false });

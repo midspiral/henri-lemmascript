@@ -8,8 +8,8 @@ side model: the agent loop itself is the verified `step` of `session.ts` (§5),
 `decide()` gates every tool call inside it, and `editFile`/`replaceFirst` back
 the edit tool.
 
-**214 Dafny verification conditions, 0 errors** — permissions 23, transcript 52,
-hooks 25, edit 12, GVE `exec_core` 10, session 92. Reproduce with
+**219 Dafny verification conditions, 0 errors** — permissions 23, transcript 52,
+hooks 25, edit 12, GVE `exec_core` 10, session 97. Reproduce with
 `npm run verify` (regenerates each `.dfy.gen` merge base, enforces additions-only
 against the proof `.dfy`, runs Dafny); CI in
 [`.github/workflows/lemmascript.yml`](.github/workflows/lemmascript.yml).
@@ -117,7 +117,7 @@ character (or shrinks `old`), so termination and in-bounds slicing are structura
 no overlap/length side-lemmas needed. The live tool calls `editFile` for the verdict
 and `replaceFirst` for the single splice; the all-occurrence join stays shell.
 
-## 5. `session.ts` — the agent loop as a verified transition system (92 VCs)
+## 5. `session.ts` — the agent loop as a verified transition system (97 VCs)
 
 The loop itself is a pure `step(st: Session, ev: SEvent): { st, cmds }`. The shell
 (`agent.ts`) is a command interpreter: it performs the emitted `SCommand`s
@@ -143,6 +143,7 @@ construction: nothing it can emit reaches an unjustified effect.
 | **S11 config stability** | `stepConfigStable_ensures` | cwd and every budget are session constants; the turn counter moves by at most one per step. |
 | **S12 grant scope** | `stepGrantScope_ensures` | Sharpens S5: a prompt answer leaves permissions unchanged or makes them EXACTLY `grantFor`/`grantAll` of the prompted call's request — no other mutation exists. |
 | **S13 bounded growth** | `stepMsgsBounded_ensures` | The transcript grows by at most the answered block (2 messages) per step, and applying a summary never grows it — C2 lifted to the session level. |
+| **T∞ trace safety** *(capstone)* | `runSession_ensures`, `traceFromInitialSafe_ensures` | `inv(runSession(initialSession(…), events))` for ANY event sequence — every state reachable from the initial session, under any provider outputs, prompt answers, interrupts, and compactions, satisfies the invariant. S2's induction over traces, as a theorem rather than prose (`runSession` folds `stepTotal`, the no-op-outside-inv totalization of `step`). |
 
 The proof composes per-transition lemmas (`AdvanceOk`, `FinishBatchOk`,
 `RequestProviderOk`, `ApprovedCurrentOk`, `StartCompactOk`, …) into one `StepOk`
@@ -188,7 +189,7 @@ in `verdictFor`, whose `ensures` is the per-call half of S1.
 ## Reproduce
 
 ```sh
-npm run verify     # ../LemmaScript/tools/check.sh dafny over LemmaScript-files.txt — 214 VCs
+npm run verify     # ../LemmaScript/tools/check.sh dafny over LemmaScript-files.txt — 219 VCs
 npm run typecheck  # tsc --noEmit
 npm test           # runtime witnesses for the verified properties
 ```

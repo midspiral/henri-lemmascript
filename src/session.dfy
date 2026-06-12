@@ -1039,3 +1039,50 @@ lemma StepOk(st: Session, ev: SEvent)
     case summaryReady(ok) =>
   }
 }
+
+function stepTotal(st: Session, ev: SEvent): StepOut
+{
+  if !(inv(st)) then
+    StepOut(st, [])
+  else
+    step(st, ev)
+}
+
+lemma stepTotal_ensures(st: Session, ev: SEvent)
+  ensures (inv(st) ==> inv(stepTotal(st, ev).st))
+{
+  if inv(st) {
+    StepOk(st, ev);
+  }
+}
+
+function runSession(st: Session, events: seq<SEvent>): Session
+  decreases |events|
+{
+  if (|events| == 0) then
+    st
+  else
+    runSession(stepTotal(st, events[0]).st, events[1..])
+}
+
+lemma runSession_ensures(st: Session, events: seq<SEvent>)
+  decreases |events|
+  ensures (inv(st) ==> inv(runSession(st, events)))
+{
+  if |events| > 0 {
+    stepTotal_ensures(st, events[0]);
+    runSession_ensures(stepTotal(st, events[0]).st, events[1..]);
+  }
+}
+
+function traceFromInitialSafe(perms: PermState, cwd: seq<string>, maxTurns: int, compactKeep: int, autoCompactAt: int, events: seq<SEvent>): bool
+{
+  true
+}
+
+lemma traceFromInitialSafe_ensures(perms: PermState, cwd: seq<string>, maxTurns: int, compactKeep: int, autoCompactAt: int, events: seq<SEvent>)
+  ensures inv(runSession(initialSession(perms, cwd, maxTurns, compactKeep, autoCompactAt), events))
+{
+  initialSession_ensures(perms, cwd, maxTurns, compactKeep, autoCompactAt);
+  runSession_ensures(initialSession(perms, cwd, maxTurns, compactKeep, autoCompactAt), events);
+}

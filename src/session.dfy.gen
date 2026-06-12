@@ -725,3 +725,40 @@ lemma stepMsgsBounded_ensures(st: Session, ev: SEvent)
   ensures (ev.summaryReady? ==> (|step(st, ev).st.msgs| <= |st.msgs|))
 {
 }
+
+function stepTotal(st: Session, ev: SEvent): StepOut
+{
+  if !(inv(st)) then
+    StepOut(st, [])
+  else
+    step(st, ev)
+}
+
+lemma stepTotal_ensures(st: Session, ev: SEvent)
+  ensures (inv(st) ==> inv(stepTotal(st, ev).st))
+{
+}
+
+function runSession(st: Session, events: seq<SEvent>): Session
+  decreases |events|
+{
+  if (|events| == 0) then
+    st
+  else
+    runSession(stepTotal(st, events[0]).st, events[1..])
+}
+
+lemma runSession_ensures(st: Session, events: seq<SEvent>)
+  ensures (inv(st) ==> inv(runSession(st, events)))
+{
+}
+
+function traceFromInitialSafe(perms: PermState, cwd: seq<string>, maxTurns: int, compactKeep: int, autoCompactAt: int, events: seq<SEvent>): bool
+{
+  true
+}
+
+lemma traceFromInitialSafe_ensures(perms: PermState, cwd: seq<string>, maxTurns: int, compactKeep: int, autoCompactAt: int, events: seq<SEvent>)
+  ensures inv(runSession(initialSession(perms, cwd, maxTurns, compactKeep, autoCompactAt), events))
+{
+}

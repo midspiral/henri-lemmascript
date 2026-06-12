@@ -35,7 +35,7 @@ imported directly by the live agent. See [DESIGN.md](DESIGN.md).
   `editFile`/`replaceFirst`; the `replace_all` join stays shell. Proofs in
   [`src/edit.dfy`](src/edit.dfy).
 - **Phase 5 — `session.ts` verified: done.** The agent loop itself is now a verified
-  transition system (`lsc check` green, 92 Dafny VCs, 0 errors): a pure
+  transition system (`lsc check` green, 97 Dafny VCs, 0 errors): a pure
   `step(state, event)` makes every decision — gating, grant recording, transcript
   appends, compaction cuts, interrupt handling — and `agent.ts` degrades to a command
   interpreter. The theorems quantify over ALL events, so the provider is modeled as an
@@ -53,9 +53,11 @@ imported directly by the live agent. See [DESIGN.md](DESIGN.md).
   within 2n+1 events; (S11) cwd and budgets are session constants, turns move by ≤ 1;
   (S12) a prompt answer changes permissions to exactly `grantFor`/`grantAll` of the
   prompted request or not at all; (S13) the transcript grows ≤ 2 per step and never
-  grows on compaction. Proofs in [`src/session.dfy`](src/session.dfy).
+  grows on compaction. Capstone (T∞): `inv(runSession(initialSession(…), events))`
+  for ANY event sequence — every reachable state is safe, as a theorem rather than
+  an induction in prose. Proofs in [`src/session.dfy`](src/session.dfy).
 
-**All verified cores are proven (214 Dafny VCs, 0 errors).** The runnable agent
+**All verified cores are proven (219 Dafny VCs, 0 errors).** The runnable agent
 imports them directly — and since Phase 5, the loop that calls them is itself one
 of them.
 
@@ -90,11 +92,11 @@ npm run typecheck   # tsc --noEmit
 npm test            # test/smoke.ts + test/session-smoke.ts — runtime witnesses for the
                     # verified properties, incl. the real interpreter driven end-to-end
                     # by a scripted provider
-npm run verify      # regenerate + verify all Dafny proofs (LemmaScript-files.txt) — 214 VCs
+npm run verify      # regenerate + verify all Dafny proofs (LemmaScript-files.txt) — 219 VCs
 ```
 
 `npm run verify` runs `../LemmaScript/tools/check.sh dafny` over the modules listed in
-[`LemmaScript-files.txt`](LemmaScript-files.txt) (214 VCs): it regenerates each `.dfy.gen`
+[`LemmaScript-files.txt`](LemmaScript-files.txt) (219 VCs): it regenerates each `.dfy.gen`
 merge base, enforces the additions-only invariant against the proof `.dfy`, and runs Dafny.
 CI ([`.github/workflows/lemmascript.yml`](.github/workflows/lemmascript.yml)) does the same plus
 typecheck + smoke, and fails if any generated file is stale. Requires a sibling
@@ -111,7 +113,7 @@ For the exact theorems (every lemma, its statement, and the proof techniques), s
 | `src/transcript.ts` | tool-call/result pairing + **no-orphan invariant** of the loop (append **and** the `/compact` drop side); the session builders the loop constructs transcripts with | the conversation sent to the provider is always well-formed, including after compaction |
 | `src/hooks.ts` | merge removal, **name-uniqueness (a fix)**, order-independence, additivity | hooks only ever add access |
 | `src/edit.ts` | `editFile()` decision soundness, **single-occurrence splice faithfulness**, length law | an edit touches exactly the matched span, nothing else |
-| `src/session.ts` | the agent loop as a transition system: **mediation under any event** (S1), invariant preservation incl. interrupts (S2), provider-call / compaction-cut safety (S3/S4), grant discipline (S5) | no sequence of events — prompt injection included — can drive the loop into an ungated effect or a malformed conversation |
+| `src/session.ts` | the agent loop as a transition system: **mediation under any event** (S1), invariant preservation incl. interrupts (S2), provider-call / compaction-cut safety (S3/S4), grant discipline & scope (S5/S12), no spurious prompts (S6/S7), interpreter-shape & batch-termination disciplines (S8–S10), bounded state (S11/S13), and **trace safety over any event sequence** (T∞) | no sequence of events — prompt injection included — can drive the loop into an ungated effect or a malformed conversation |
 
 The shell (`agent.ts` — a command interpreter over the session core —
 `permission-gate.ts` (prompt UI + the `Req` projection), `providers/`, `tools/`,
