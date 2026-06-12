@@ -151,6 +151,7 @@ lemma compact_ensures(msgs: seq<TMsg>, c: int)
   requires (0 <= c)
   requires (c <= |msgs|)
   ensures (wellFormed(msgs) ==> ((c == |msgs|) || headOk(msgs[c])) ==> wellFormed(compact(msgs, c)))
+  ensures (|compact(msgs, c)| == ((|msgs| - c) + 1))
 {
   if wellFormed(msgs) && ((c == |msgs|) || headOk(msgs[c])) {
     compactPreservesWellFormed_ensures(msgs, c);
@@ -413,6 +414,7 @@ lemma appendAnsweredBlock_ensures(msgs: seq<TMsg>, calls: seq<TToolCall>, result
   requires (|calls| > 0)
   requires pairs(calls, results)
   ensures wellFormed(appendAnsweredBlock(msgs, calls, results))
+  ensures (|appendAnsweredBlock(msgs, calls, results)| == (|msgs| + 2))
 {
   var a := assistant(calls);
   var t := tool(results);

@@ -8,8 +8,8 @@ side model: the agent loop itself is the verified `step` of `session.ts` (§5),
 `decide()` gates every tool call inside it, and `editFile`/`replaceFirst` back
 the edit tool.
 
-**187 Dafny verification conditions, 0 errors** — permissions 23, transcript 52,
-hooks 25, edit 12, GVE `exec_core` 10, session 65. Reproduce with
+**214 Dafny verification conditions, 0 errors** — permissions 23, transcript 52,
+hooks 25, edit 12, GVE `exec_core` 10, session 92. Reproduce with
 `npm run verify` (regenerates each `.dfy.gen` merge base, enforces additions-only
 against the proof `.dfy`, runs Dafny); CI in
 [`.github/workflows/lemmascript.yml`](.github/workflows/lemmascript.yml).
@@ -117,7 +117,7 @@ character (or shrinks `old`), so termination and in-bounds slicing are structura
 no overlap/length side-lemmas needed. The live tool calls `editFile` for the verdict
 and `replaceFirst` for the single splice; the all-occurrence join stays shell.
 
-## 5. `session.ts` — the agent loop as a verified transition system (65 VCs)
+## 5. `session.ts` — the agent loop as a verified transition system (92 VCs)
 
 The loop itself is a pure `step(st: Session, ev: SEvent): { st, cmds }`. The shell
 (`agent.ts`) is a command interpreter: it performs the emitted `SCommand`s
@@ -135,6 +135,14 @@ construction: nothing it can emit reaches an unjustified effect.
 | **S3 provider calls** | `stepProviderCallSafe_ensures` | Whenever `callProvider` is emitted, the session awaits the provider, its transcript is well-formed (what T2 used to assert at runtime is now a theorem about the loop), and the turn budget was respected. |
 | **S4 summarize** | `stepSummarizeSafe_ensures` | Whenever `summarize(cut)` is emitted, the cut is recorded in the phase, nontrivial, and a safe boundary of the transcript it will be applied to — composing with C1, the later `summaryReady` compaction provably preserves well-formedness. |
 | **S5 grant discipline** | `stepPermsStable_ensures` | Only a `promptAnswer` event ever changes the permission state — and (by the step function's shape) only via the verified `grantFor`/`grantAll` builders. |
+| **S6 prompt necessity** | `stepPromptNecessary_ensures` | The dual of S1: `askUser` is only emitted for a call that is neither exempt nor already allowed — no spurious prompts. |
+| **S7 automation never blocks** | `stepRejectNeverAsks_ensures` | Under `rejectPrompts`, step NEVER emits `askUser` (via decide's `rejectPrompts ⟹ ¬Prompt`); with P4, automation can neither hang on a prompt nor escalate. |
+| **S8 command discipline** | `stepCommandDiscipline_ensures` | Everything before the last command is a `skipTool` notification — at most one effectful command per step, and it is last. The interpreter's sequential dispatch relies on exactly this shape. |
+| **S9 cursor correspondence** | `stepExecCursor_ensures`, `stepAskCursor_ensures` | An emitted `execTool` (resp. `askUser`) call IS the post-state batch's current call — the call the next `toolDone` (resp. `promptAnswer`) event answers. This is what makes the shell's id-keyed batch bookkeeping faithful. |
+| **S10 batch progress** | `stepBatchProgress_ensures` | The batch measure (2·unanswered, +1 while a prompt pends) strictly decreases on every batch event — a batch of n calls provably completes within 2n+1 events; no livelock. |
+| **S11 config stability** | `stepConfigStable_ensures` | cwd and every budget are session constants; the turn counter moves by at most one per step. |
+| **S12 grant scope** | `stepGrantScope_ensures` | Sharpens S5: a prompt answer leaves permissions unchanged or makes them EXACTLY `grantFor`/`grantAll` of the prompted call's request — no other mutation exists. |
+| **S13 bounded growth** | `stepMsgsBounded_ensures` | The transcript grows by at most the answered block (2 messages) per step, and applying a summary never grows it — C2 lifted to the session level. |
 
 The proof composes per-transition lemmas (`AdvanceOk`, `FinishBatchOk`,
 `RequestProviderOk`, `ApprovedCurrentOk`, `StartCompactOk`, …) into one `StepOk`
@@ -180,7 +188,7 @@ in `verdictFor`, whose `ensures` is the per-call half of S1.
 ## Reproduce
 
 ```sh
-npm run verify     # ../LemmaScript/tools/check.sh dafny over LemmaScript-files.txt — 187 VCs
+npm run verify     # ../LemmaScript/tools/check.sh dafny over LemmaScript-files.txt — 214 VCs
 npm run typecheck  # tsc --noEmit
 npm test           # runtime witnesses for the verified properties
 ```

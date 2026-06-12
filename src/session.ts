@@ -279,6 +279,7 @@ export function verdictFor(st: Session, c: SCall): Verdict {
   //@ verify
   //@ ensures \result === "exec" ==> (c.noPerm || isAllowed(st.perms, st.cwd, c.req))
   //@ ensures \result === "prompt" ==> (!c.noPerm && !isAllowed(st.perms, st.cwd, c.req))
+  //@ ensures st.perms.rejectPrompts ==> \result !== "prompt"
   if (!c.known) return "skipUnknown";
   if (c.noPerm || decide(st.perms, st.cwd, c.req) === "Allow") {
     if (c.argsOk) return "exec";
@@ -604,5 +605,123 @@ export function stepPermsStable(st: Session, ev: SEvent): boolean {
   //@ requires inv(st)
   //@ requires ev.kind !== "promptAnswer"
   //@ ensures step(st, ev).st.perms === st.perms
+  return true;
+}
+
+// S6 prompt necessity (the dual of S1). The user is only ever asked when the
+// call is neither exempt nor already allowed — step never emits a spurious
+// permission prompt for something the state already justifies.
+export function stepPromptNecessary(st: Session, ev: SEvent, i: number): boolean {
+  //@ verify
+  //@ requires inv(st)
+  //@ requires 0 <= i && i < step(st, ev).cmds.length
+  //@ requires step(st, ev).cmds[i].kind === "askUser"
+  //@ ensures !step(st, ev).cmds[i].call.noPerm
+  //@ ensures !isAllowed(step(st, ev).st.perms, step(st, ev).st.cwd, step(st, ev).cmds[i].call.req)
+  return true;
+}
+
+// S7 automation never blocks. Under rejectPrompts (bench/automation mode) step
+// NEVER emits askUser — composed with P4 (reject only rewrites Prompt→Deny),
+// automation can neither hang on a prompt nor escalate beyond pre-authorization.
+export function stepRejectNeverAsks(st: Session, ev: SEvent, i: number): boolean {
+  //@ verify
+  //@ requires inv(st)
+  //@ requires st.perms.rejectPrompts
+  //@ requires 0 <= i && i < step(st, ev).cmds.length
+  //@ ensures step(st, ev).cmds[i].kind !== "askUser"
+  return true;
+}
+
+// S8 command discipline. Everything before the last command is a skipTool
+// notification — so there is at most ONE effectful command per step, and it is
+// last. The interpreter's sequential dispatch relies on exactly this shape.
+export function stepCommandDiscipline(st: Session, ev: SEvent, i: number): boolean {
+  //@ verify
+  //@ requires inv(st)
+  //@ requires 0 <= i && i < step(st, ev).cmds.length - 1
+  //@ ensures step(st, ev).cmds[i].kind === "skipTool"
+  return true;
+}
+
+// S9 cursor correspondence. An emitted execTool (resp. askUser) call IS the
+// post-state batch's current call — the call the next toolDone (resp.
+// promptAnswer) event will answer. This is what makes the shell's id-keyed
+// bookkeeping (pendingCalls/pendingResults) faithful by construction.
+export function stepExecCursor(st: Session, ev: SEvent, i: number): boolean {
+  //@ verify
+  //@ requires inv(st)
+  //@ requires 0 <= i && i < step(st, ev).cmds.length
+  //@ requires step(st, ev).cmds[i].kind === "execTool"
+  //@ ensures step(st, ev).st.phase.kind === "toolBatch"
+  //@ ensures step(st, ev).st.phase.done.length < step(st, ev).st.phase.calls.length
+  //@ ensures step(st, ev).st.phase.calls[step(st, ev).st.phase.done.length] === step(st, ev).cmds[i].call
+  return true;
+}
+
+export function stepAskCursor(st: Session, ev: SEvent, i: number): boolean {
+  //@ verify
+  //@ requires inv(st)
+  //@ requires 0 <= i && i < step(st, ev).cmds.length
+  //@ requires step(st, ev).cmds[i].kind === "askUser"
+  //@ ensures step(st, ev).st.phase.kind === "awaitingPrompt"
+  //@ ensures step(st, ev).st.phase.done.length < step(st, ev).st.phase.calls.length
+  //@ ensures step(st, ev).st.phase.calls[step(st, ev).st.phase.done.length] === step(st, ev).cmds[i].call
+  return true;
+}
+
+// S10 batch progress. The batch measure (2·unanswered calls, +1 while a prompt
+// is pending) strictly decreases on every batch event — so a batch of n calls
+// provably completes within 2n+1 events: no livelock, no stuck prompt loop.
+export function batchMeasure(st: Session): number {
+  //@ verify
+  const ph = st.phase;
+  if (ph.kind === "toolBatch") return 2 * (ph.calls.length - ph.done.length);
+  if (ph.kind === "awaitingPrompt") return 2 * (ph.calls.length - ph.done.length) + 1;
+  return 0;
+}
+
+export function stepBatchProgress(st: Session, ev: SEvent): boolean {
+  //@ verify
+  //@ requires inv(st)
+  //@ requires st.phase.kind === "toolBatch" || st.phase.kind === "awaitingPrompt"
+  //@ requires ev.kind === "toolDone" || ev.kind === "promptAnswer" || ev.kind === "batchInterrupted"
+  //@ requires ev.kind === "toolDone" ==> st.phase.kind === "toolBatch"
+  //@ requires ev.kind === "promptAnswer" ==> st.phase.kind === "awaitingPrompt"
+  //@ ensures (step(st, ev).st.phase.kind === "toolBatch" || step(st, ev).st.phase.kind === "awaitingPrompt") ==> batchMeasure(step(st, ev).st) < batchMeasure(st)
+  return true;
+}
+
+// S11 configuration stability. The working directory and every budget are
+// constants of the session, and the turn counter moves by at most one per step.
+export function stepConfigStable(st: Session, ev: SEvent): boolean {
+  //@ verify
+  //@ requires inv(st)
+  //@ ensures step(st, ev).st.maxTurns === st.maxTurns
+  //@ ensures step(st, ev).st.compactKeep === st.compactKeep
+  //@ ensures step(st, ev).st.autoCompactAt === st.autoCompactAt
+  //@ ensures st.turns <= step(st, ev).st.turns && step(st, ev).st.turns <= st.turns + 1
+  return true;
+}
+
+// S12 grant scope (sharpening S5). On a prompt answer, the permission state
+// either stays put or becomes EXACTLY grantFor/grantAll of the prompted call's
+// request — there is no other mutation a prompt answer can perform.
+export function stepGrantScope(st: Session, ev: SEvent): boolean {
+  //@ verify
+  //@ requires inv(st)
+  //@ requires ev.kind === "promptAnswer"
+  //@ ensures step(st, ev).st.perms === st.perms || (st.phase.kind === "awaitingPrompt" && st.phase.done.length < st.phase.calls.length && (step(st, ev).st.perms === grantFor(st.perms, st.cwd, st.phase.calls[st.phase.done.length].req) || step(st, ev).st.perms === grantAll(st.perms, st.cwd, st.phase.calls[st.phase.done.length].req)))
+  return true;
+}
+
+// S13 bounded growth (C2 at the session level). One step grows the transcript
+// by at most the answered block (two messages), and applying a summary never
+// grows it — so history size is controlled by construction.
+export function stepMsgsBounded(st: Session, ev: SEvent): boolean {
+  //@ verify
+  //@ requires inv(st)
+  //@ ensures step(st, ev).st.msgs.length <= st.msgs.length + 2
+  //@ ensures ev.kind === "summaryReady" ==> step(st, ev).st.msgs.length <= st.msgs.length
   return true;
 }

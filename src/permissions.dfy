@@ -83,6 +83,7 @@ function decide(st: PermState, cwd: seq<string>, req: Req): Outcome
 
 lemma decide_ensures(st: PermState, cwd: seq<string>, req: Req)
   ensures (decide(st, cwd, req).Allow? == isAllowed(st, cwd, req))
+  ensures (st.rejectPrompts ==> (!decide(st, cwd, req).Prompt?))
 {
 }
 

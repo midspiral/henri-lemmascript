@@ -6,6 +6,7 @@
 import assert from "node:assert/strict";
 import { isAllowed, type PermState } from "../src/permissions.ts";
 import {
+  batchMeasure,
   initialSession,
   inv,
   justified,
@@ -36,13 +37,27 @@ function freshState(): PermState {
   return emptyState(new Set(), new Set(["read_file"]), false);
 }
 
-/** Step + S-theorem runtime witnesses: inv is preserved and every execTool is justified. */
+/** Step + S-theorem runtime witnesses (S1–S13) on every transition taken. */
 function stepChecked(st: Session, ev: SEvent): StepOut {
   const out = step(st, ev);
   check("S2: inv preserved", inv(out.st));
-  for (const cmd of out.cmds) {
+  out.cmds.forEach((cmd, i) => {
     if (cmd.kind === "execTool") {
       check("S1: execTool justified", justified(st, out.st, ev, cmd.call));
+      check(
+        "S9: exec call is the batch cursor",
+        out.st.phase.kind === "toolBatch" && out.st.phase.calls[out.st.phase.done.length] === cmd.call,
+      );
+    }
+    if (cmd.kind === "askUser") {
+      check("S6: prompt only when not allowed", !cmd.call.noPerm && !isAllowed(out.st.perms, out.st.cwd, cmd.call.req));
+      check(
+        "S9: prompted call is the batch cursor",
+        out.st.phase.kind === "awaitingPrompt" && out.st.phase.calls[out.st.phase.done.length] === cmd.call,
+      );
+    }
+    if (st.perms.rejectPrompts) {
+      check("S7: reject mode never asks", cmd.kind !== "askUser");
     }
     if (cmd.kind === "callProvider") {
       check("S3: provider call from awaitingProvider", out.st.phase.kind === "awaitingProvider");
@@ -50,9 +65,31 @@ function stepChecked(st: Session, ev: SEvent): StepOut {
     if (cmd.kind === "summarize") {
       check("S4: summarize cut recorded", out.st.phase.kind === "awaitingSummary" && out.st.phase.cut === cmd.cut);
     }
-  }
+    if (i < out.cmds.length - 1) {
+      check("S8: only skips before the last command", cmd.kind === "skipTool");
+    }
+  });
   if (ev.kind !== "promptAnswer") {
     check("S5: perms stable off promptAnswer", out.st.perms === st.perms);
+  }
+  const batchEvent =
+    (ev.kind === "toolDone" && st.phase.kind === "toolBatch") ||
+    (ev.kind === "promptAnswer" && st.phase.kind === "awaitingPrompt") ||
+    (ev.kind === "batchInterrupted" && (st.phase.kind === "toolBatch" || st.phase.kind === "awaitingPrompt"));
+  if (batchEvent && (out.st.phase.kind === "toolBatch" || out.st.phase.kind === "awaitingPrompt")) {
+    check("S10: batch measure strictly decreases", batchMeasure(out.st) < batchMeasure(st));
+  }
+  check(
+    "S11: config stable, turns move ≤ 1",
+    out.st.maxTurns === st.maxTurns &&
+      out.st.compactKeep === st.compactKeep &&
+      out.st.autoCompactAt === st.autoCompactAt &&
+      st.turns <= out.st.turns &&
+      out.st.turns <= st.turns + 1,
+  );
+  check("S13: transcript grows by at most 2", out.st.msgs.length <= st.msgs.length + 2);
+  if (ev.kind === "summaryReady") {
+    check("S13: compaction never grows", out.st.msgs.length <= st.msgs.length);
   }
   return out;
 }
@@ -147,6 +184,26 @@ check("turn 1 allowed", b1.cmds.some((c) => c.kind === "callProvider"));
 let b2 = stepChecked(b1.st, { kind: "providerReply", calls: [], contextTokens: 10 });
 let b3 = stepChecked(b2.st, { kind: "userInput" });
 check("turn 2 blocked by budget", b3.cmds.length === 0 && b3.st.phase.kind === "idle");
+
+// rejectPrompts (automation mode): the would-prompt escape is auto-denied and
+// the batch completes without a single askUser (S7 witnessed in stepChecked).
+let auto = initialSession(emptyState(new Set(), new Set(["read_file"]), true), cwd, 0, 6, 0);
+let a1 = stepChecked(auto, { kind: "userInput" });
+let a2 = stepChecked(a1.st, { kind: "providerReply", calls: [readOut, bashEcho], contextTokens: 10 });
+check(
+  "S7: reject mode skips straight through",
+  a2.cmds.filter((c) => c.kind === "skipTool").length === 2 && a2.cmds.some((c) => c.kind === "callProvider"),
+);
+
+// S12 grant scope: an "always" answer changes perms to exactly grantFor(cur.req)
+// — witnessed indirectly: the new state justifies cur.req (G1) and nothing else
+// changed for an unrelated request.
+const unrelated: SCall["req"] = { kind: "other", tool: "web_fetch" };
+let g0 = initialSession(freshState(), cwd, 0, 6, 0);
+let g1 = stepChecked(g0, { kind: "userInput" });
+let g2 = stepChecked(g1.st, { kind: "providerReply", calls: [bashEcho], contextTokens: 10 });
+let g3 = stepChecked(g2.st, { kind: "promptAnswer", answer: "always" });
+check("S12: grant adds exactly the approved req", isAllowed(g3.st.perms, cwd, bashEcho.req) && !isAllowed(g3.st.perms, cwd, unrelated));
 
 // Wrong-phase events are no-ops (step is total).
 let noop = stepChecked(st, { kind: "toolDone", isError: false });

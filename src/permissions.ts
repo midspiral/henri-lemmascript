@@ -111,6 +111,7 @@ export function isAllowed(st: PermState, cwd: string[], req: Req): boolean {
  */
 export function decide(st: PermState, cwd: string[], req: Req): Outcome {
   //@ ensures (\result === "Allow") === isAllowed(st, cwd, req)
+  //@ ensures st.rejectPrompts ==> \result !== "Prompt"
   if (isAllowed(st, cwd, req)) return "Allow";
   if (st.rejectPrompts) return "Deny";
   return "Prompt";

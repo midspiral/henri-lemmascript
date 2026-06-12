@@ -35,7 +35,7 @@ imported directly by the live agent. See [DESIGN.md](DESIGN.md).
   `editFile`/`replaceFirst`; the `replace_all` join stays shell. Proofs in
   [`src/edit.dfy`](src/edit.dfy).
 - **Phase 5 — `session.ts` verified: done.** The agent loop itself is now a verified
-  transition system (`lsc check` green, 65 Dafny VCs, 0 errors): a pure
+  transition system (`lsc check` green, 92 Dafny VCs, 0 errors): a pure
   `step(state, event)` makes every decision — gating, grant recording, transcript
   appends, compaction cuts, interrupt handling — and `agent.ts` degrades to a command
   interpreter. The theorems quantify over ALL events, so the provider is modeled as an
@@ -45,9 +45,17 @@ imported directly by the live agent. See [DESIGN.md](DESIGN.md).
   included; (S3) provider calls only happen on well-formed transcripts within the turn
   budget; (S4) compaction cuts are safe and nontrivial; (S5) only prompt answers ever
   change the permission state, via the verified grant builders (G1/G2 in
-  `permissions.ts`). Proofs in [`src/session.dfy`](src/session.dfy).
+  `permissions.ts`). Plus the duals and disciplines: (S6) no spurious prompts; (S7)
+  `rejectPrompts` automation provably never blocks on a prompt; (S8) at most one
+  effectful command per step, and it is last — the shape the interpreter dispatches
+  on; (S9) an emitted execute/ask command is exactly the batch cursor the next event
+  answers; (S10) a strictly decreasing batch measure — a batch of n calls terminates
+  within 2n+1 events; (S11) cwd and budgets are session constants, turns move by ≤ 1;
+  (S12) a prompt answer changes permissions to exactly `grantFor`/`grantAll` of the
+  prompted request or not at all; (S13) the transcript grows ≤ 2 per step and never
+  grows on compaction. Proofs in [`src/session.dfy`](src/session.dfy).
 
-**All verified cores are proven (187 Dafny VCs, 0 errors).** The runnable agent
+**All verified cores are proven (214 Dafny VCs, 0 errors).** The runnable agent
 imports them directly — and since Phase 5, the loop that calls them is itself one
 of them.
 
@@ -82,11 +90,11 @@ npm run typecheck   # tsc --noEmit
 npm test            # test/smoke.ts + test/session-smoke.ts — runtime witnesses for the
                     # verified properties, incl. the real interpreter driven end-to-end
                     # by a scripted provider
-npm run verify      # regenerate + verify all Dafny proofs (LemmaScript-files.txt) — 187 VCs
+npm run verify      # regenerate + verify all Dafny proofs (LemmaScript-files.txt) — 214 VCs
 ```
 
 `npm run verify` runs `../LemmaScript/tools/check.sh dafny` over the modules listed in
-[`LemmaScript-files.txt`](LemmaScript-files.txt) (187 VCs): it regenerates each `.dfy.gen`
+[`LemmaScript-files.txt`](LemmaScript-files.txt) (214 VCs): it regenerates each `.dfy.gen`
 merge base, enforces the additions-only invariant against the proof `.dfy`, and runs Dafny.
 CI ([`.github/workflows/lemmascript.yml`](.github/workflows/lemmascript.yml)) does the same plus
 typecheck + smoke, and fails if any generated file is stale. Requires a sibling

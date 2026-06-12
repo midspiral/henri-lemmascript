@@ -159,6 +159,7 @@ export function compact(msgs: TMsg[], c: number): TMsg[] {
   //@ verify
   //@ requires 0 <= c && c <= msgs.length
   //@ ensures (wellFormed(msgs) && (c === msgs.length || headOk(msgs[c]))) ==> wellFormed(\result)
+  //@ ensures \result.length === msgs.length - c + 1
   return [{ role: "user" }, ...msgs.slice(c)];
 }
 
@@ -292,6 +293,7 @@ export function appendAnsweredBlock(msgs: TMsg[], calls: TToolCall[], results: T
   //@ requires calls.length > 0
   //@ requires pairs(calls, results)
   //@ ensures wellFormed(\result)
+  //@ ensures \result.length === msgs.length + 2
   return appendPair(msgs, { role: "assistant", toolCalls: calls }, { role: "tool", toolResults: results });
 }
 

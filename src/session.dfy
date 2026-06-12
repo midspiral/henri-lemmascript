@@ -14,12 +14,14 @@ function {:axiom} initialMsgs(): seq<TMsg>
 
 function {:axiom} decide(st: PermState, cwd: seq<string>, req: Req): Outcome
   ensures (decide(st, cwd, req).Allow? == isAllowed(st, cwd, req))
+  ensures (st.rejectPrompts ==> (!decide(st, cwd, req).Prompt?))
 
 function {:axiom} appendAnsweredBlock(msgs: seq<TMsg>, calls: seq<TToolCall>, results: seq<TToolResult>): seq<TMsg>
   requires wellFormed(msgs)
   requires (|calls| > 0)
   requires pairs(calls, results)
   ensures wellFormed(appendAnsweredBlock(msgs, calls, results))
+  ensures (|appendAnsweredBlock(msgs, calls, results)| == (|msgs| + 2))
 
 function {:axiom} pushResult(calls: seq<TToolCall>, done: seq<TToolResult>, isError: bool): seq<TToolResult>
   requires pairsTo(calls, done)
@@ -65,6 +67,7 @@ function {:axiom} fillRest(calls: seq<TToolCall>, done: seq<TToolResult>): seq<T
 function {:axiom} compact(msgs: seq<TMsg>, c: int): seq<TMsg>
   requires ((0 <= c) && (c <= |msgs|))
   ensures (wellFormed(msgs) ==> ((c == |msgs|) || headOk(msgs[c])) ==> wellFormed(compact(msgs, c)))
+  ensures (|compact(msgs, c)| == ((|msgs| - c) + 1))
 
 function {:axiom} isAllowed(st: PermState, cwd: seq<string>, req: Req): bool
 
@@ -239,6 +242,7 @@ function verdictFor(st: Session, c: SCall): Verdict
 lemma verdictFor_ensures(st: Session, c: SCall)
   ensures (verdictFor(st, c).exec? ==> (c.noPerm || isAllowed(st.perms, st.cwd, c.req)))
   ensures (verdictFor(st, c).prompt? ==> (!(c.noPerm) && !(isAllowed(st.perms, st.cwd, c.req))))
+  ensures (st.perms.rejectPrompts ==> (!verdictFor(st, c).prompt?))
 {
 }
 
@@ -561,8 +565,186 @@ lemma stepPermsStable_ensures(st: Session, ev: SEvent)
   StepOk(st, ev);
 }
 
+function stepPromptNecessary(st: Session, ev: SEvent, i: int): bool
+  requires inv(st)
+  requires (0 <= i)
+  requires (i < |step(st, ev).cmds|)
+  requires step(st, ev).cmds[i].askUser?
+{
+  true
+}
+
+lemma stepPromptNecessary_ensures(st: Session, ev: SEvent, i: int)
+  requires inv(st)
+  requires (0 <= i)
+  requires (i < |step(st, ev).cmds|)
+  requires step(st, ev).cmds[i].askUser?
+  ensures !(step(st, ev).cmds[i].call.noPerm)
+  ensures !(isAllowed(step(st, ev).st.perms, step(st, ev).st.cwd, step(st, ev).cmds[i].call.req))
+{
+  StepOk(st, ev);
+}
+
+function stepRejectNeverAsks(st: Session, ev: SEvent, i: int): bool
+  requires inv(st)
+  requires st.perms.rejectPrompts
+  requires (0 <= i)
+  requires (i < |step(st, ev).cmds|)
+{
+  true
+}
+
+lemma stepRejectNeverAsks_ensures(st: Session, ev: SEvent, i: int)
+  requires inv(st)
+  requires st.perms.rejectPrompts
+  requires (0 <= i)
+  requires (i < |step(st, ev).cmds|)
+  ensures (!step(st, ev).cmds[i].askUser?)
+{
+  StepOk(st, ev);
+}
+
+function stepCommandDiscipline(st: Session, ev: SEvent, i: int): bool
+  requires inv(st)
+  requires (0 <= i)
+  requires (i < (|step(st, ev).cmds| - 1))
+{
+  true
+}
+
+lemma stepCommandDiscipline_ensures(st: Session, ev: SEvent, i: int)
+  requires inv(st)
+  requires (0 <= i)
+  requires (i < (|step(st, ev).cmds| - 1))
+  ensures step(st, ev).cmds[i].skipTool?
+{
+  StepOk(st, ev);
+}
+
+function stepExecCursor(st: Session, ev: SEvent, i: int): bool
+  requires inv(st)
+  requires (0 <= i)
+  requires (i < |step(st, ev).cmds|)
+  requires step(st, ev).cmds[i].execTool?
+{
+  true
+}
+
+lemma stepExecCursor_ensures(st: Session, ev: SEvent, i: int)
+  requires inv(st)
+  requires (0 <= i)
+  requires (i < |step(st, ev).cmds|)
+  requires step(st, ev).cmds[i].execTool?
+  ensures step(st, ev).st.phase.toolBatch?
+  ensures (|step(st, ev).st.phase.done| < |step(st, ev).st.phase.calls|)
+  ensures (step(st, ev).st.phase.calls[|step(st, ev).st.phase.done|] == step(st, ev).cmds[i].call)
+{
+  StepOk(st, ev);
+}
+
+function stepAskCursor(st: Session, ev: SEvent, i: int): bool
+  requires inv(st)
+  requires (0 <= i)
+  requires (i < |step(st, ev).cmds|)
+  requires step(st, ev).cmds[i].askUser?
+{
+  true
+}
+
+lemma stepAskCursor_ensures(st: Session, ev: SEvent, i: int)
+  requires inv(st)
+  requires (0 <= i)
+  requires (i < |step(st, ev).cmds|)
+  requires step(st, ev).cmds[i].askUser?
+  ensures step(st, ev).st.phase.awaitingPrompt?
+  ensures (|step(st, ev).st.phase.done| < |step(st, ev).st.phase.calls|)
+  ensures (step(st, ev).st.phase.calls[|step(st, ev).st.phase.done|] == step(st, ev).cmds[i].call)
+{
+  StepOk(st, ev);
+}
+
+function batchMeasure(st: Session): int
+{
+  var ph := st.phase;
+  match ph {
+    case toolBatch(i_ph_calls, i_ph_done) =>
+      (2 * (|i_ph_calls| - |i_ph_done|))
+    case awaitingPrompt(i_ph_calls, i_ph_done) =>
+      ((2 * (|i_ph_calls| - |i_ph_done|)) + 1)
+    case _ =>
+      0
+  }
+}
+
+function stepBatchProgress(st: Session, ev: SEvent): bool
+  requires inv(st)
+  requires (st.phase.toolBatch? || st.phase.awaitingPrompt?)
+  requires ((ev.toolDone? || ev.promptAnswer?) || ev.batchInterrupted?)
+  requires (ev.toolDone? ==> st.phase.toolBatch?)
+  requires (ev.promptAnswer? ==> st.phase.awaitingPrompt?)
+{
+  true
+}
+
+lemma stepBatchProgress_ensures(st: Session, ev: SEvent)
+  requires inv(st)
+  requires (st.phase.toolBatch? || st.phase.awaitingPrompt?)
+  requires ((ev.toolDone? || ev.promptAnswer?) || ev.batchInterrupted?)
+  requires (ev.toolDone? ==> st.phase.toolBatch?)
+  requires (ev.promptAnswer? ==> st.phase.awaitingPrompt?)
+  ensures ((step(st, ev).st.phase.toolBatch? || step(st, ev).st.phase.awaitingPrompt?) ==> (batchMeasure(step(st, ev).st) < batchMeasure(st)))
+{
+  StepOk(st, ev);
+}
+
+function stepConfigStable(st: Session, ev: SEvent): bool
+  requires inv(st)
+{
+  true
+}
+
+lemma stepConfigStable_ensures(st: Session, ev: SEvent)
+  requires inv(st)
+  ensures (step(st, ev).st.maxTurns == st.maxTurns)
+  ensures (step(st, ev).st.compactKeep == st.compactKeep)
+  ensures (step(st, ev).st.autoCompactAt == st.autoCompactAt)
+  ensures (st.turns <= step(st, ev).st.turns)
+  ensures (step(st, ev).st.turns <= (st.turns + 1))
+{
+  StepOk(st, ev);
+}
+
+function stepGrantScope(st: Session, ev: SEvent): bool
+  requires inv(st)
+  requires ev.promptAnswer?
+{
+  true
+}
+
+lemma stepGrantScope_ensures(st: Session, ev: SEvent)
+  requires inv(st)
+  requires ev.promptAnswer?
+  ensures ((step(st, ev).st.perms == st.perms) || ((st.phase.awaitingPrompt? && (|st.phase.done| < |st.phase.calls|)) && ((step(st, ev).st.perms == grantFor(st.perms, st.cwd, st.phase.calls[|st.phase.done|].req)) || (step(st, ev).st.perms == grantAll(st.perms, st.cwd, st.phase.calls[|st.phase.done|].req)))))
+{
+  StepOk(st, ev);
+}
+
+function stepMsgsBounded(st: Session, ev: SEvent): bool
+  requires inv(st)
+{
+  true
+}
+
+lemma stepMsgsBounded_ensures(st: Session, ev: SEvent)
+  requires inv(st)
+  ensures (|step(st, ev).st.msgs| <= (|st.msgs| + 2))
+  ensures (ev.summaryReady? ==> (|step(st, ev).st.msgs| <= |st.msgs|))
+{
+  StepOk(st, ev);
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
-// Proof program for the trace theorems (S1–S5).
+// Proof program for the trace theorems (S1–S13).
 //
 // One `*Ok` lemma per transition function bundles everything that holds of its
 // StepOut; `StepOk` composes them by case analysis over the event, and the
@@ -595,14 +777,57 @@ ghost predicate ExecJustifiedBy(perms: PermState, cwd: seq<string>, out: StepOut
     out.cmds[k].call.noPerm || isAllowed(perms, cwd, out.cmds[k].call.req)
 }
 
+// S8: everything before the last command is a skipTool notification — at most
+// one effectful command per step, and it is last.
+ghost predicate OnlySkipsBeforeLast(out: StepOut)
+{
+  forall k :: 0 <= k < |out.cmds| - 1 ==> out.cmds[k].skipTool?
+}
+
+// S6: a prompt is only ever asked for a call the post-state does NOT justify.
+ghost predicate PromptNecessary(out: StepOut)
+{
+  forall k :: 0 <= k < |out.cmds| && out.cmds[k].askUser? ==>
+    !out.cmds[k].call.noPerm && !isAllowed(out.st.perms, out.st.cwd, out.cmds[k].call.req)
+}
+
+// S9: an emitted execTool / askUser call IS the post-state batch's current call.
+ghost predicate CursorLinked(out: StepOut)
+{
+  && (forall k :: 0 <= k < |out.cmds| && out.cmds[k].execTool? ==>
+      out.st.phase.toolBatch? && |out.st.phase.done| < |out.st.phase.calls|
+      && out.st.phase.calls[|out.st.phase.done|] == out.cmds[k].call)
+  && (forall k :: 0 <= k < |out.cmds| && out.cmds[k].askUser? ==>
+      out.st.phase.awaitingPrompt? && |out.st.phase.done| < |out.st.phase.calls|
+      && out.st.phase.calls[|out.st.phase.done|] == out.cmds[k].call)
+}
+
+// S7: no askUser command at all (under rejectPrompts).
+ghost predicate NoAsk(out: StepOut)
+{
+  forall k :: 0 <= k < |out.cmds| ==> !out.cmds[k].askUser?
+}
+
+// S11: budgets and cwd are session constants; turns moves by at most one.
+ghost predicate ConfigStable(st0: Session, out: StepOut)
+{
+  && out.st.maxTurns == st0.maxTurns
+  && out.st.compactKeep == st0.compactKeep
+  && out.st.autoCompactAt == st0.autoCompactAt
+  && st0.turns <= out.st.turns <= st0.turns + 1
+}
+
 lemma RequestProviderOk(st: Session)
   requires wellFormed(st.msgs)
   ensures var out := requestProvider(st);
     && inv(out.st)
     && out.st.perms == st.perms && out.st.cwd == st.cwd
     && out.st.maxTurns == st.maxTurns && out.st.msgs == st.msgs
+    && (out.st.phase.idle? || out.st.phase.awaitingProvider?)
     && (forall k :: 0 <= k < |out.cmds| ==> out.cmds[k].callProvider?)
     && ProviderSafe(st, out) && SummarizeLinked(out)
+    && OnlySkipsBeforeLast(out) && PromptNecessary(out) && CursorLinked(out) && NoAsk(out)
+    && ConfigStable(st, out)
 {
 }
 
@@ -613,8 +838,11 @@ lemma StartCompactOk(st: Session, keep: int)
     && out.st.perms == st.perms && out.st.cwd == st.cwd
     && out.st.maxTurns == st.maxTurns && out.st.msgs == st.msgs
     && out.st.turns == st.turns
+    && (out.st.phase.idle? || out.st.phase.awaitingSummary?)
     && (forall k :: 0 <= k < |out.cmds| ==> out.cmds[k].summarize?)
     && ProviderSafe(st, out) && SummarizeLinked(out)
+    && OnlySkipsBeforeLast(out) && PromptNecessary(out) && CursorLinked(out) && NoAsk(out)
+    && ConfigStable(st, out)
 {
 }
 
@@ -624,8 +852,11 @@ lemma MaybeAutoCompactOk(st: Session)
     && inv(out.st)
     && out.st.perms == st.perms && out.st.cwd == st.cwd
     && out.st.maxTurns == st.maxTurns && out.st.msgs == st.msgs
+    && (out.st.phase.idle? || out.st.phase.awaitingSummary?)
     && (forall k :: 0 <= k < |out.cmds| ==> out.cmds[k].summarize?)
     && ProviderSafe(st, out) && SummarizeLinked(out)
+    && OnlySkipsBeforeLast(out) && PromptNecessary(out) && CursorLinked(out) && NoAsk(out)
+    && ConfigStable(st, out)
 {
   if !(st.autoCompactAt <= 0 || st.lastContextTokens <= st.autoCompactAt) {
     StartCompactOk(st, st.compactKeep);
@@ -639,8 +870,12 @@ lemma FinishBatchOk(st: Session, calls: seq<SCall>, done: seq<TToolResult>, stop
   ensures var out := finishBatch(st, calls, done, stopped);
     && inv(out.st)
     && out.st.perms == st.perms && out.st.cwd == st.cwd && out.st.maxTurns == st.maxTurns
+    && !out.st.phase.toolBatch? && !out.st.phase.awaitingPrompt?
+    && |out.st.msgs| == |st.msgs| + 2
     && (forall k :: 0 <= k < |out.cmds| ==> out.cmds[k].callProvider?)
     && ProviderSafe(st, out) && SummarizeLinked(out)
+    && OnlySkipsBeforeLast(out) && PromptNecessary(out) && CursorLinked(out) && NoAsk(out)
+    && ConfigStable(st, out)
 {
   var msgs2 := appendAnsweredBlock(st.msgs, projectCalls(calls), done);
   if !stopped {
@@ -659,6 +894,11 @@ lemma AdvanceOk(st: Session, calls: seq<SCall>, done: seq<TToolResult>)
     && out.st.perms == st.perms && out.st.cwd == st.cwd && out.st.maxTurns == st.maxTurns
     && ExecJustifiedBy(st.perms, st.cwd, out)
     && ProviderSafe(st, out) && SummarizeLinked(out)
+    && OnlySkipsBeforeLast(out) && PromptNecessary(out) && CursorLinked(out)
+    && (st.perms.rejectPrompts ==> NoAsk(out))
+    && ConfigStable(st, out)
+    && |out.st.msgs| <= |st.msgs| + 2
+    && ((out.st.phase.toolBatch? || out.st.phase.awaitingPrompt?) ==> batchMeasure(out.st) <= 2 * (|calls| - |done|) + 1)
 {
   var c := calls[|done|];
   var v := verdictFor(st, c);
@@ -688,6 +928,11 @@ lemma RecordAndContinueOk(st: Session, calls: seq<SCall>, done: seq<TToolResult>
     && out.st.perms == st.perms && out.st.cwd == st.cwd && out.st.maxTurns == st.maxTurns
     && ExecJustifiedBy(st.perms, st.cwd, out)
     && ProviderSafe(st, out) && SummarizeLinked(out)
+    && OnlySkipsBeforeLast(out) && PromptNecessary(out) && CursorLinked(out)
+    && (st.perms.rejectPrompts ==> NoAsk(out))
+    && ConfigStable(st, out)
+    && |out.st.msgs| <= |st.msgs| + 2
+    && ((out.st.phase.toolBatch? || out.st.phase.awaitingPrompt?) ==> batchMeasure(out.st) <= 2 * (|calls| - |done|) - 1)
 {
   var done2 := pushResult(projectCalls(calls), done, isError);
   if |done2| == |calls| {
@@ -697,19 +942,26 @@ lemma RecordAndContinueOk(st: Session, calls: seq<SCall>, done: seq<TToolResult>
   }
 }
 
-// approvedCurrent's execTool is exactly `c` (the prompted call); every other
-// command it can emit is covered by the unchanged-perms justification.
+// approvedCurrent's own execTool is exactly `c` (the prompted call, which the
+// caller passes as the batch cursor); every other command it can emit is
+// covered by the unchanged-perms justification.
 lemma ApprovedCurrentOk(st: Session, calls: seq<SCall>, done: seq<TToolResult>, c: SCall)
   requires wellFormed(st.msgs)
   requires |calls| > 0
   requires |done| < |calls|
   requires pairsTo(projectCalls(calls), done)
+  requires c == calls[|done|]
   ensures var out := approvedCurrent(st, calls, done, c);
     && inv(out.st)
     && out.st.perms == st.perms && out.st.cwd == st.cwd && out.st.maxTurns == st.maxTurns
     && (forall k :: 0 <= k < |out.cmds| && out.cmds[k].execTool? ==>
         out.cmds[k].call == c || out.cmds[k].call.noPerm || isAllowed(st.perms, st.cwd, out.cmds[k].call.req))
     && ProviderSafe(st, out) && SummarizeLinked(out)
+    && OnlySkipsBeforeLast(out) && PromptNecessary(out) && CursorLinked(out)
+    && (st.perms.rejectPrompts ==> NoAsk(out))
+    && ConfigStable(st, out)
+    && |out.st.msgs| <= |st.msgs| + 2
+    && ((out.st.phase.toolBatch? || out.st.phase.awaitingPrompt?) ==> batchMeasure(out.st) <= 2 * (|calls| - |done|))
 {
   if !c.argsOk {
     var r := recordAndContinue(st, calls, done, true);
@@ -728,6 +980,21 @@ lemma StepOk(st: Session, ev: SEvent)
     && (!ev.promptAnswer? ==> out.st.perms == st.perms)
     && (forall k :: 0 <= k < |out.cmds| && out.cmds[k].execTool? ==> justified(st, out.st, ev, out.cmds[k].call))
     && ProviderSafe(st, out) && SummarizeLinked(out)
+    && OnlySkipsBeforeLast(out) && PromptNecessary(out) && CursorLinked(out)
+    && (st.perms.rejectPrompts ==> NoAsk(out))
+    && ConfigStable(st, out)
+    && |out.st.msgs| <= |st.msgs| + 2
+    && (ev.summaryReady? ==> |out.st.msgs| <= |st.msgs|)
+    && (((st.phase.toolBatch? || st.phase.awaitingPrompt?)
+         && (ev.toolDone? || ev.promptAnswer? || ev.batchInterrupted?)
+         && (ev.toolDone? ==> st.phase.toolBatch?)
+         && (ev.promptAnswer? ==> st.phase.awaitingPrompt?))
+        ==> ((out.st.phase.toolBatch? || out.st.phase.awaitingPrompt?) ==> batchMeasure(out.st) < batchMeasure(st)))
+    && (ev.promptAnswer? ==>
+        (out.st.perms == st.perms
+         || (st.phase.awaitingPrompt? && |st.phase.done| < |st.phase.calls|
+             && (out.st.perms == grantFor(st.perms, st.cwd, st.phase.calls[|st.phase.done|].req)
+                 || out.st.perms == grantAll(st.perms, st.cwd, st.phase.calls[|st.phase.done|].req)))))
 {
   match ev {
     case userInput =>
