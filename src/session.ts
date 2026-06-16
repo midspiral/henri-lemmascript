@@ -253,6 +253,7 @@ export function inv(st: Session): boolean {
 /** The initial session: empty transcript, idle — provably satisfies inv. */
 export function initialSession(perms: PermState, cwd: string[], maxTurns: number, compactKeep: number, autoCompactAt: number): Session {
   //@ verify
+  //@ contract The initial session satisfies the session invariant — the base case for reachability safety.
   //@ ensures inv(\result)
   return {
     msgs: initialMsgs(),
@@ -277,6 +278,7 @@ export type Verdict = "exec" | "prompt" | "skipUnknown" | "skipDenied" | "skipMi
 
 export function verdictFor(st: Session, c: SCall): Verdict {
   //@ verify
+  //@ contract A verdict of "exec" implies the call is exempt or already allowed; a verdict of "prompt" implies it is neither; and under rejectPrompts the verdict is never "prompt".
   //@ ensures \result === "exec" ==> (c.noPerm || isAllowed(st.perms, st.cwd, c.req))
   //@ ensures \result === "prompt" ==> (!c.noPerm && !isAllowed(st.perms, st.cwd, c.req))
   //@ ensures st.perms.rejectPrompts ==> \result !== "prompt"
@@ -550,6 +552,7 @@ export function justified(st: Session, st2: Session, ev: SEvent, c: SCall): bool
 // effect.
 export function stepMediation(st: Session, ev: SEvent, i: number): boolean {
   //@ verify
+  //@ contract Mediation: in any invariant-satisfying state, for any event — provider tool calls included, so prompt injection is in scope — every execTool command the step emits is justified; there is no unjustified path to an effect.
   //@ requires inv(st)
   //@ requires 0 <= i && i < step(st, ev).cmds.length
   //@ requires step(st, ev).cmds[i].kind === "execTool"
@@ -562,6 +565,7 @@ export function stepMediation(st: Session, ev: SEvent, i: number): boolean {
 // this gives by induction: every REACHABLE session state satisfies inv.
 export function stepPreservesInv(st: Session, ev: SEvent): boolean {
   //@ verify
+  //@ contract The session invariant survives every event — interrupts mid-stream and mid-batch, prompt answers, and compaction included.
   //@ requires inv(st)
   //@ ensures inv(step(st, ev).st)
   return true;
@@ -572,6 +576,7 @@ export function stepPreservesInv(st: Session, ev: SEvent): boolean {
 // counter respected the budget.
 export function stepProviderCallSafe(st: Session, ev: SEvent, i: number): boolean {
   //@ verify
+  //@ contract Whenever the step emits callProvider, the session is awaiting the provider, the transcript it will mirror is well-formed, and the turn counter stayed within budget.
   //@ requires inv(st)
   //@ requires 0 <= i && i < step(st, ev).cmds.length
   //@ requires step(st, ev).cmds[i].kind === "callProvider"
@@ -587,6 +592,7 @@ export function stepProviderCallSafe(st: Session, ev: SEvent, i: number): boolea
 // (composing with C1, the compaction itself stays well-formed).
 export function stepSummarizeSafe(st: Session, ev: SEvent, i: number): boolean {
   //@ verify
+  //@ contract Whenever the step emits a summarize cut, the cut is recorded in the phase, is nontrivial, and is a safe boundary of the transcript it applies to — so applying it can never orphan a tool_result.
   //@ requires inv(st)
   //@ requires 0 <= i && i < step(st, ev).cmds.length
   //@ requires step(st, ev).cmds[i].kind === "summarize"
@@ -602,6 +608,7 @@ export function stepSummarizeSafe(st: Session, ev: SEvent, i: number): boolean {
 // TO is governed by the grant builders' G1/G2 and P3/P4.)
 export function stepPermsStable(st: Session, ev: SEvent): boolean {
   //@ verify
+  //@ contract Only an interactive prompt answer ever changes the permission state — every other event leaves it untouched.
   //@ requires inv(st)
   //@ requires ev.kind !== "promptAnswer"
   //@ ensures step(st, ev).st.perms === st.perms
@@ -613,6 +620,7 @@ export function stepPermsStable(st: Session, ev: SEvent): boolean {
 // permission prompt for something the state already justifies.
 export function stepPromptNecessary(st: Session, ev: SEvent, i: number): boolean {
   //@ verify
+  //@ contract The user is asked only for a call that is neither exempt nor allowed in the resulting state — the step never emits a spurious permission prompt.
   //@ requires inv(st)
   //@ requires 0 <= i && i < step(st, ev).cmds.length
   //@ requires step(st, ev).cmds[i].kind === "askUser"
@@ -626,6 +634,7 @@ export function stepPromptNecessary(st: Session, ev: SEvent, i: number): boolean
 // automation can neither hang on a prompt nor escalate beyond pre-authorization.
 export function stepRejectNeverAsks(st: Session, ev: SEvent, i: number): boolean {
   //@ verify
+  //@ contract Under rejectPrompts (automation mode), the step never emits askUser — automation never hangs on a prompt.
   //@ requires inv(st)
   //@ requires st.perms.rejectPrompts
   //@ requires 0 <= i && i < step(st, ev).cmds.length
@@ -638,6 +647,7 @@ export function stepRejectNeverAsks(st: Session, ev: SEvent, i: number): boolean
 // last. The interpreter's sequential dispatch relies on exactly this shape.
 export function stepCommandDiscipline(st: Session, ev: SEvent, i: number): boolean {
   //@ verify
+  //@ contract Every command before the last is a skipTool notification — so there is at most one effectful command per step, and it is last.
   //@ requires inv(st)
   //@ requires 0 <= i && i < step(st, ev).cmds.length - 1
   //@ ensures step(st, ev).cmds[i].kind === "skipTool"
@@ -650,6 +660,7 @@ export function stepCommandDiscipline(st: Session, ev: SEvent, i: number): boole
 // bookkeeping (pendingCalls/pendingResults) faithful by construction.
 export function stepExecCursor(st: Session, ev: SEvent, i: number): boolean {
   //@ verify
+  //@ contract An emitted execTool call is exactly the post-state batch's next-unanswered call — the one the next toolDone event will answer.
   //@ requires inv(st)
   //@ requires 0 <= i && i < step(st, ev).cmds.length
   //@ requires step(st, ev).cmds[i].kind === "execTool"
@@ -661,6 +672,7 @@ export function stepExecCursor(st: Session, ev: SEvent, i: number): boolean {
 
 export function stepAskCursor(st: Session, ev: SEvent, i: number): boolean {
   //@ verify
+  //@ contract An emitted askUser call is exactly the post-state prompt's next-unanswered call — the one the next promptAnswer event will answer.
   //@ requires inv(st)
   //@ requires 0 <= i && i < step(st, ev).cmds.length
   //@ requires step(st, ev).cmds[i].kind === "askUser"
@@ -683,6 +695,7 @@ export function batchMeasure(st: Session): number {
 
 export function stepBatchProgress(st: Session, ev: SEvent): boolean {
   //@ verify
+  //@ contract The batch measure strictly decreases on every batch event — so a tool batch provably terminates: no livelock, no stuck prompt loop.
   //@ requires inv(st)
   //@ requires st.phase.kind === "toolBatch" || st.phase.kind === "awaitingPrompt"
   //@ requires ev.kind === "toolDone" || ev.kind === "promptAnswer" || ev.kind === "batchInterrupted"
@@ -696,6 +709,7 @@ export function stepBatchProgress(st: Session, ev: SEvent): boolean {
 // constants of the session, and the turn counter moves by at most one per step.
 export function stepConfigStable(st: Session, ev: SEvent): boolean {
   //@ verify
+  //@ contract Every budget — max-turns and the compaction thresholds — is a constant of the session, and the turn counter moves by at most one per step.
   //@ requires inv(st)
   //@ ensures step(st, ev).st.maxTurns === st.maxTurns
   //@ ensures step(st, ev).st.compactKeep === st.compactKeep
@@ -709,6 +723,7 @@ export function stepConfigStable(st: Session, ev: SEvent): boolean {
 // request — there is no other mutation a prompt answer can perform.
 export function stepGrantScope(st: Session, ev: SEvent): boolean {
   //@ verify
+  //@ contract On a prompt answer, the permission state either stays put or becomes exactly grantFor/grantAll of the prompted call's request — no other mutation is possible.
   //@ requires inv(st)
   //@ requires ev.kind === "promptAnswer"
   //@ ensures step(st, ev).st.perms === st.perms || (st.phase.kind === "awaitingPrompt" && st.phase.done.length < st.phase.calls.length && (step(st, ev).st.perms === grantFor(st.perms, st.cwd, st.phase.calls[st.phase.done.length].req) || step(st, ev).st.perms === grantAll(st.perms, st.cwd, st.phase.calls[st.phase.done.length].req)))
@@ -720,6 +735,7 @@ export function stepGrantScope(st: Session, ev: SEvent): boolean {
 // grows it — so history size is controlled by construction.
 export function stepMsgsBounded(st: Session, ev: SEvent): boolean {
   //@ verify
+  //@ contract One step grows the transcript by at most two messages, and applying a summary never grows it — so history size is bounded by construction.
   //@ requires inv(st)
   //@ ensures step(st, ev).st.msgs.length <= st.msgs.length + 2
   //@ ensures ev.kind === "summaryReady" ==> step(st, ev).st.msgs.length <= st.msgs.length
@@ -735,6 +751,7 @@ export function stepMsgsBounded(st: Session, ev: SEvent): boolean {
  *  step — the guard only exists so the trace fold needs no precondition. */
 export function stepTotal(st: Session, ev: SEvent): StepOut {
   //@ verify
+  //@ contract The totalized step preserves the invariant — any state satisfying the invariant steps to one that still satisfies it.
   //@ ensures inv(st) ==> inv(\result.st)
   if (!inv(st)) return { st, cmds: [] };
   return step(st, ev);
@@ -744,6 +761,7 @@ export function stepTotal(st: Session, ev: SEvent): StepOut {
  *  to perform; the trace theorem is about the state evolution. */
 export function runSession(st: Session, events: SEvent[]): Session {
   //@ verify
+  //@ contract Folding a whole event trace preserves the invariant — from a safe state, any sequence of events leaves the session safe.
   //@ decreases events.length
   //@ ensures inv(st) ==> inv(\result)
   if (events.length === 0) return st;
@@ -757,6 +775,7 @@ export function runSession(st: Session, events: SEvent[]): Session {
 // in prose; and per-step, S1–S13 hold at each of those states.
 export function traceFromInitialSafe(perms: PermState, cwd: string[], maxTurns: number, compactKeep: number, autoCompactAt: number, events: SEvent[]): boolean {
   //@ verify
+  //@ contract Every state reachable from the initial session, by any event sequence whatsoever, satisfies the session invariant — "every reachable state is safe" as a theorem, not a prose induction.
   //@ ensures inv(runSession(initialSession(perms, cwd, maxTurns, compactKeep, autoCompactAt), events))
   return true;
 }

@@ -74,6 +74,8 @@ export function manyOcc(hay: string[], old: string[]): boolean {
  * or its own all-occurrence join (trusted) with replace_all.
  */
 export function editFile(content: string[], old: string[], all: boolean): Edit {
+  //@ verify
+  //@ contract The edit verdict matches the occurrence count exactly — NotFound when old does not occur, Ambiguous when it occurs more than once without replace-all, and Replaced otherwise.
   //@ requires old.length > 0
   //@ ensures (\result.kind === "NotFound") === !occurs(content, old)
   //@ ensures (\result.kind === "Ambiguous") === (manyOcc(content, old) && !all)
@@ -91,6 +93,7 @@ export function editFile(content: string[], old: string[], all: boolean): Edit {
 /** E2 — replacing text that does not occur leaves the content unchanged. */
 export function noMatchIdentity(hay: string[], old: string[], repl: string[]): boolean {
   //@ verify
+  //@ contract Replacing text that does not occur leaves the content unchanged.
   //@ requires !occurs(hay, old)
   //@ ensures replaceFirst(hay, old, repl) === hay
   return true;
@@ -99,6 +102,7 @@ export function noMatchIdentity(hay: string[], old: string[], repl: string[]): b
 /** E3 — replacing `old` with `old` is a no-op: the splice touches exactly the matched span. */
 export function spliceNoop(hay: string[], old: string[]): boolean {
   //@ verify
+  //@ contract Replacing old with itself is a no-op — the splice touches exactly the matched span and nothing else.
   //@ ensures replaceFirst(hay, old, old) === hay
   return true;
 }
@@ -106,6 +110,7 @@ export function spliceNoop(hay: string[], old: string[]): boolean {
 /** E4 — a single splice changes the length by exactly repl.length - old.length. */
 export function spliceLength(hay: string[], old: string[], repl: string[]): boolean {
   //@ verify
+  //@ contract A single splice changes the content length by exactly repl.length minus old.length.
   //@ requires occurs(hay, old)
   //@ ensures replaceFirst(hay, old, repl).length === hay.length - old.length + repl.length
   return true;

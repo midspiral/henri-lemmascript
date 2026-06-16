@@ -123,6 +123,7 @@ export function gather(base: string[], parts: string[][]): string[] {
 // H1 removal — a removed tool name never survives the merge.
 export function removedExcluded(defaults: Tool[], hooks: Hook[], name: string): boolean {
   //@ verify
+  //@ contract A tool name removed by any hook never survives the merge.
   //@ requires contains(allRemoves(hooks), name)
   //@ ensures !hasName(mergeTools(defaults, hooks), name)
   return true;
@@ -132,6 +133,7 @@ export function removedExcluded(defaults: Tool[], hooks: Hook[], name: string): 
 // distinct (distinctNames inlined, since //@ specs can't name a ghost predicate).
 export function distinctMergedNames(defaults: Tool[], hooks: Hook[]): boolean {
   //@ verify
+  //@ contract Every tool name in the merged result is distinct — no two tools share a name (the dedup fix).
   //@ ensures forall(i, forall(j, (0 <= i && i < j && j < mergeTools(defaults, hooks).length) ==> mergeTools(defaults, hooks)[i].name !== mergeTools(defaults, hooks)[j].name))
   return true;
 }
@@ -139,6 +141,7 @@ export function distinctMergedNames(defaults: Tool[], hooks: Hook[]): boolean {
 // coverage — a kept (present, non-removed) name is preserved by the merge.
 export function coverage(defaults: Tool[], hooks: Hook[], name: string): boolean {
   //@ verify
+  //@ contract A tool name that is present and not removed is preserved by the merge.
   //@ requires hasName(allTools(defaults, hooks), name)
   //@ requires !contains(allRemoves(hooks), name)
   //@ ensures hasName(mergeTools(defaults, hooks), name)
@@ -149,6 +152,7 @@ export function coverage(defaults: Tool[], hooks: Hook[], name: string): boolean
 // it does not depend on the order in which hooks are listed.
 export function gatherMembership(base: string[], parts: string[][], x: string): boolean {
   //@ verify
+  //@ contract A name is in the gathered list exactly when it is in the base or in one of the contributions — so the result does not depend on hook order.
   //@ ensures contains(gather(base, parts), x) === (contains(base, x) || exists(i, 0 <= i && i < parts.length && contains(parts[i], x)))
   return true;
 }
@@ -157,6 +161,7 @@ export function gatherMembership(base: string[], parts: string[][], x: string): 
 // grantMonotone: a hook's contributions can only loosen, never tighten).
 export function gatherGrows(base: string[], parts: string[][], x: string): boolean {
   //@ verify
+  //@ contract Gathering only ever grows the base — every base name stays present, so a hook's contributions can only loosen access, never tighten it.
   //@ requires contains(base, x)
   //@ ensures contains(gather(base, parts), x)
   return true;
@@ -167,6 +172,7 @@ export function gatherGrows(base: string[], parts: string[][], x: string): boole
 // `contains` decides string membership exactly.
 export function containsCorrect(xs: string[], x: string): boolean {
   //@ verify
+  //@ contract The contains helper decides string-list membership exactly.
   //@ decreases xs.length
   //@ ensures contains(xs, x) === xs.includes(x)
   return true;
@@ -175,6 +181,7 @@ export function containsCorrect(xs: string[], x: string): boolean {
 // `hasName` decides name-membership exactly.
 export function hasNameCorrect(tools: Tool[], name: string): boolean {
   //@ verify
+  //@ contract The hasName helper decides tool-name membership exactly.
   //@ decreases tools.length
   //@ ensures hasName(tools, name) === exists(i, 0 <= i && i < tools.length && tools[i].name === name)
   return true;
@@ -183,6 +190,7 @@ export function hasNameCorrect(tools: Tool[], name: string): boolean {
 // A name is in the flattened contributions iff it is in some part.
 export function flattenMembership(parts: string[][], x: string): boolean {
   //@ verify
+  //@ contract A name is in the flattened contributions exactly when it is in some part.
   //@ decreases parts.length
   //@ ensures flatten(parts).includes(x) === exists(i, 0 <= i && i < parts.length && parts[i].includes(x))
   return true;
@@ -191,6 +199,7 @@ export function flattenMembership(parts: string[][], x: string): boolean {
 // H3 corollary — swapping two hook groups yields the same gather membership.
 export function gatherCommutes(base: string[], p: string[], q: string[], x: string): boolean {
   //@ verify
+  //@ contract Swapping two hook groups yields the same gathered membership — order-independent.
   //@ ensures gather(base, [p, q]).includes(x) === gather(base, [q, p]).includes(x)
   return true;
 }
