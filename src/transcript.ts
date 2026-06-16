@@ -41,6 +41,8 @@ export function pairs(calls: TToolCall[], results: TToolResult[]): boolean {
 
 /** The results the per-call dispatch loop must produce: one per call, id preserved. */
 export function makeResults(calls: TToolCall[]): TToolResult[] {
+  //@ verify
+  //@ contract Produces one tool-result per call, ids preserved in order — the result block pairs exactly with the calls.
   //@ decreases calls.length
   //@ ensures \result.length === calls.length
   //@ ensures pairs(calls, \result)
@@ -104,6 +106,8 @@ export function wellFormed(msgs: TMsg[]): boolean {
  * orphan boundary, so the kept suffix never starts with a tool_result.
  */
 export function snapBack(msgs: TMsg[], c: number): number {
+  //@ verify
+  //@ contract Returns a safe index where the retained suffix may begin — the end, or a non-tool message — so the kept suffix never starts with an orphaned tool_result.
   //@ requires 0 <= c && c <= msgs.length
   //@ decreases c
   //@ ensures 0 <= \result && \result <= msgs.length
@@ -120,6 +124,8 @@ export function snapBack(msgs: TMsg[], c: number): number {
  * retained suffix begins.
  */
 export function findCut(msgs: TMsg[], keepRecent: number): number {
+  //@ verify
+  //@ contract Returns a safe cut index — the end, or a non-tool position — where the retained suffix may begin; how far back to keep is unverified shell policy, the no-orphan safety is what is proven.
   //@ requires 0 <= keepRecent
   //@ ensures 0 <= \result && \result <= msgs.length
   //@ ensures \result === msgs.length || headOk(msgs[\result])
@@ -157,6 +163,7 @@ export function appendToolBlock(msgs: TMsg[], calls: TToolCall[]): TMsg[] {
  *  single `user` summary, keeping the suffix msgs[c..]. */
 export function compact(msgs: TMsg[], c: number): TMsg[] {
   //@ verify
+  //@ contract Replaces the prefix before c with a single user summary, keeping the suffix — and if the input was well-formed and c is a safe cut, the result is well-formed; the result has length (msgs.length − c + 1).
   //@ requires 0 <= c && c <= msgs.length
   return [{ role: "user" }, ...msgs.slice(c)];
 }
@@ -164,6 +171,7 @@ export function compact(msgs: TMsg[], c: number): TMsg[] {
 /** A consistent transcript ends in a message that may legally be last. */
 export function wfFromImpliesLastOk(msgs: TMsg[]): boolean {
   //@ verify
+  //@ contract A consistent transcript ends in a message that may legally be last.
   //@ requires msgs.length > 0
   //@ requires wfFrom(msgs)
   //@ decreases msgs.length
@@ -174,6 +182,7 @@ export function wfFromImpliesLastOk(msgs: TMsg[]): boolean {
 /** A suffix of a consistent transcript is consistent (the adjacency chain shrinks). */
 export function wfFromSuffix(msgs: TMsg[], c: number): boolean {
   //@ verify
+  //@ contract Any suffix of a consistent transcript is itself consistent.
   //@ requires 0 <= c && c <= msgs.length
   //@ requires wfFrom(msgs)
   //@ decreases c
@@ -185,6 +194,7 @@ export function wfFromSuffix(msgs: TMsg[], c: number): boolean {
  *  whose `t` is a valid last preserves consistency. */
 export function wfFromAppendPair(msgs: TMsg[], a: TMsg, t: TMsg): boolean {
   //@ verify
+  //@ contract Extending a consistent transcript by a connected (a, t) pair whose t may legally be last preserves consistency.
   //@ requires msgs.length > 0
   //@ requires wfFrom(msgs)
   //@ requires okAdjacent(msgs[msgs.length - 1], a)
@@ -201,6 +211,7 @@ export function wfFromAppendPair(msgs: TMsg[], a: TMsg, t: TMsg): boolean {
 // the loop's own append step.
 export function appendPreservesWellFormed(msgs: TMsg[], calls: TToolCall[]): boolean {
   //@ verify
+  //@ contract Appending a tool-call turn and its paired result block to a well-formed transcript keeps it well-formed — no orphaned tool_result is ever sent and no tool_use goes unanswered.
   //@ requires wellFormed(msgs)
   //@ requires calls.length > 0
   //@ ensures wellFormed(appendToolBlock(msgs, calls))
@@ -212,6 +223,7 @@ export function appendPreservesWellFormed(msgs: TMsg[], calls: TToolCall[]): boo
 // suffix never starts with an orphan tool_result.
 export function compactPreservesWellFormed(msgs: TMsg[], c: number): boolean {
   //@ verify
+  //@ contract Dropping the prefix at a safe (non-tool) cut and prepending a user summary keeps the transcript well-formed — the retained suffix never starts with an orphaned tool_result.
   //@ requires wellFormed(msgs)
   //@ requires 0 <= c && c <= msgs.length
   //@ requires c === msgs.length || headOk(msgs[c])
@@ -223,6 +235,7 @@ export function compactPreservesWellFormed(msgs: TMsg[], c: number): boolean {
 // it drops at least two messages — so repeated auto-compaction can't blow up.
 export function compactNonGrowing(msgs: TMsg[], c: number): boolean {
   //@ verify
+  //@ contract Compaction never grows the conversation.
   //@ requires 1 <= c && c <= msgs.length
   //@ ensures compact(msgs, c).length <= msgs.length
   return true;
@@ -230,6 +243,7 @@ export function compactNonGrowing(msgs: TMsg[], c: number): boolean {
 
 export function compactShrinks(msgs: TMsg[], c: number): boolean {
   //@ verify
+  //@ contract Compaction strictly shrinks the conversation whenever it drops at least two messages.
   //@ requires 2 <= c && c <= msgs.length
   //@ ensures compact(msgs, c).length < msgs.length
   return true;
@@ -240,6 +254,7 @@ export function compactShrinks(msgs: TMsg[], c: number): boolean {
 // findCut == 0) provably fires and the process reaches a fixpoint.
 export function compactConverges(msgs: TMsg[], keepRecent: number): boolean {
   //@ verify
+  //@ contract Once at most keepRecent messages remain, the cut keeps everything (findCut returns 0), so auto-compaction reaches a fixpoint.
   //@ requires 0 <= keepRecent
   //@ requires wellFormed(msgs)
   //@ requires msgs.length <= keepRecent

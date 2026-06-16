@@ -90,6 +90,7 @@ export function forwardRefPlan(): EStep[] {
 // (forward included) is unsound; the witness proves the gap is real.
 export function forwardRefGap(): boolean {
   //@ verify
+  //@ contract The old all-binds check accepts a forward-reference plan that in-order execution rejects — so checking reads against the full bind set (forward refs included) is unsound.
   //@ ensures okAllBinds(forwardRefPlan()) === true
   //@ ensures execOk(forwardRefPlan(), []) === false
   return true;
@@ -101,6 +102,7 @@ export function forwardRefGap(): boolean {
 // safe one.
 export function fixIsStrengthening(steps: EStep[]): boolean {
   //@ verify
+  //@ contract The in-order check is a strengthening of the old all-binds check: any plan the in-order check accepts, the old check also accepts — so the fix only ever removes unsafe forward-ref plans, never a safe one.
   //@ ensures execOk(steps, []) ==> okAllBinds(steps)
   return true;
 }
