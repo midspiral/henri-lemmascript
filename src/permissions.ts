@@ -110,6 +110,8 @@ export function isAllowed(st: PermState, cwd: string[], req: Req): boolean {
  * the call requires permission (the gate short-circuits no-permission tools).
  */
 export function decide(st: PermState, cwd: string[], req: Req): Outcome {
+  //@ verify
+  //@ contract Returns Allow exactly when the call is justified (isAllowed); and when rejectPrompts is set it never returns Prompt.
   //@ ensures (\result === "Allow") === isAllowed(st, cwd, req)
   if (isAllowed(st, cwd, req)) return "Allow";
   if (st.rejectPrompts) return "Deny";
@@ -131,6 +133,7 @@ export function decide(st: PermState, cwd: string[], req: Req): Outcome {
 // auto-allow-in-cwd can never reach outside the working directory.
 export function autoGrantImpliesWithin(st: PermState, cwd: string[], req: Req): boolean {
   //@ verify
+  //@ contract A justified path call with no allow-all, no auto-allow, and no explicit per-path grant must resolve inside cwd — auto-allow-in-cwd can never reach outside the working directory.
   //@ requires req.kind === "path"
   //@ requires !st.allowAll
   //@ requires !st.autoAllow.has(req.tool)
@@ -144,6 +147,7 @@ export function autoGrantImpliesWithin(st: PermState, cwd: string[], req: Req): 
 // (so decide() can never auto-Allow it).
 export function noEscape(st: PermState, cwd: string[], req: Req): boolean {
   //@ verify
+  //@ contract A path that escapes cwd, with no other grant, is never justified — so it can never be auto-allowed.
   //@ requires req.kind === "path"
   //@ requires !st.allowAll
   //@ requires !st.autoAllow.has(req.tool)
@@ -164,6 +168,7 @@ export function noEscape(st: PermState, cwd: string[], req: Req): boolean {
 // which //@ specs cannot express, so it stays a Dafny lemma.
 export function grantMonotone(st: PermState, st2: PermState, cwd: string[], req: Req): boolean {
   //@ verify
+  //@ contract Growing the grant sets — autoAllow, autoAllowCwd, allowedTools, allowedBashCommands — never revokes a justification (the per-path grants and allow-all are held fixed; per-path monotonicity is a separate lemma).
   //@ requires st2.allowAll === st.allowAll
   //@ requires st2.allowedPaths === st.allowedPaths
   //@ requires st.autoAllow <= st2.autoAllow
@@ -178,6 +183,7 @@ export function grantMonotone(st: PermState, st2: PermState, cwd: string[], req:
 // P3 corollary — allow-all justifies everything.
 export function allowAllGrantsEverything(st: PermState, cwd: string[], req: Req): boolean {
   //@ verify
+  //@ contract When allow-all is set, every request is justified.
   //@ requires st.allowAll
   //@ ensures isAllowed(st, cwd, req)
   return true;
@@ -189,6 +195,7 @@ export function allowAllGrantsEverything(st: PermState, cwd: string[], req: Req)
 // rejectPrompts on, everything else equal; \result is decide() under st2.
 export function rejectIsDenyOnly(st: PermState, st2: PermState, cwd: string[], req: Req): Outcome {
   //@ verify
+  //@ contract Turning on rejectPrompts only ever rewrites Prompt to Deny — the outcome is never Prompt, and it is Allow exactly when the unmodified state would allow.
   //@ requires st2.rejectPrompts
   //@ requires st2.allowAll === st.allowAll
   //@ requires st2.autoAllow === st.autoAllow

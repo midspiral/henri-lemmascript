@@ -8,6 +8,22 @@ datatype PermState = PermState(autoAllow: set<string>, autoAllowCwd: set<string>
 
 datatype Req = bash(command: string) | path(tool: string, segs: seq<string>, absolute: bool) | other(tool: string)
 
+function decide(st: PermState, cwd: seq<string>, req: Req): Outcome
+{
+  if isAllowed(st, cwd, req) then
+    Outcome.Allow
+  else
+    if st.rejectPrompts then
+      Outcome.Deny
+    else
+      Outcome.Prompt
+}
+
+lemma decide_ensures(st: PermState, cwd: seq<string>, req: Req)
+  ensures (decide(st, cwd, req).Allow? == isAllowed(st, cwd, req))
+{
+}
+
 function autoGrantImpliesWithin(st: PermState, cwd: seq<string>, req: Req): bool
   requires req.path?
   requires !(st.allowAll)
