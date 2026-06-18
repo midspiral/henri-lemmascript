@@ -6,44 +6,11 @@ on:
   pull_request:
 
 jobs:
-  # Regenerate the Dafny merge base, enforce additions-only, and verify all
-  # 60 VCs across four modules.
-  dafny:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v6
-
-      - name: Clone LemmaScript (sibling)
-        run: git clone --depth 1 https://github.com/midspiral/LemmaScript.git ../LemmaScript
-
-      - uses: actions/setup-node@v6
-        with:
-          node-version: '22'
-
-      - name: Install LemmaScript tools deps
-        working-directory: ../LemmaScript/tools
-        run: npm ci
-
-      - uses: actions/setup-dotnet@v5
-        with:
-          dotnet-version: '8.0.x'
-
-      - uses: dafny-lang/setup-dafny-action@v1
-        with:
-          dafny-version: '4.11.0'
-
-      - name: Regenerate and verify (LemmaScript-files.txt)
-        run: ../LemmaScript/tools/check.sh dafny
-
-      - name: Check generated Dafny files are up to date
-        run: |
-          git diff --exit-code -- '*.dfy.gen' '*.dfy'
-          untracked=$(git ls-files --others --exclude-standard -- '*.dfy.gen')
-          if [ -n "$untracked" ]; then
-            echo "ERROR: Untracked generated Dafny files:"
-            echo "$untracked"
-            exit 1
-          fi
+  verify:
+    uses: midspiral/LemmaScript/.github/workflows/verify.yml@main
+    with:
+      backend: dafny
+      node-version: '22'
 
   # Typecheck the runnable agent and run the runtime smoke witnesses.
   typecheck:
