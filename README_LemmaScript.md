@@ -1,5 +1,8 @@
 # henri-lemmascript — what LemmaScript proves
 
+[![LemmaScript: verified](https://img.shields.io/badge/LemmaScript-verified-brightgreen)](https://github.com/midspiral/henri-lemmascript/actions/workflows/lemmascript.yml)
+
+
 A hackable agent CLI (a TypeScript port of [henri](https://github.com/metareflection/henri/)) whose security- and
 protocol-critical decision logic is **verified with [LemmaScript](https://github.com/midspiral/LemmaScript)
 (Dafny backend)** and imported directly by the live, runnable agent — it streams
