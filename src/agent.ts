@@ -256,8 +256,25 @@ export class Agent {
     };
   }
 
+  /** The concrete call the core is working through right now. The verified core
+   *  consumes a batch strictly in order, so the call awaiting a result is the one
+   *  at the result cursor — NOT an id lookup, since duplicate ids are legal and
+   *  must still execute in batch order. Projects it and checks it matches the
+   *  SCall the core emitted, then returns the live ToolCall (which carries args). */
+  private currentPendingCall(call: SCall, op: string): ToolCall {
+    const tc = this.pendingCalls[this.pendingResults.length];
+    if (!tc) {
+      throw new Error(`internal: ${op} for '${call.name}' (${call.id}) but no pending call at cursor ${this.pendingResults.length}`);
+    }
+    if (JSON.stringify(this.projectCall(tc)) !== JSON.stringify(call)) {
+      throw new Error(`internal: ${op} call '${call.name}' (${call.id}) does not match the pending call at the batch cursor`);
+    }
+    return tc;
+  }
+
   private recordSkip(cmd: { call: SCall; reason: string }): void {
     const { call, reason } = cmd;
+    const tc = this.currentPendingCall(call, `skipTool:${reason}`);
     let content: string;
     if (reason === "skipUnknown") {
       content = `[error: unknown tool '${call.name}']`;
@@ -265,10 +282,9 @@ export class Agent {
       console.log(color.dim(`Auto-denied: ${call.name}`));
       content = "[permission denied by user]";
     } else {
-      const tc = this.pendingCalls.find((c) => c.id === call.id);
       const tool = this.toolsByName.get(call.name);
       const required = tool ? ((tool.parameters as { required?: string[] }).required ?? []) : [];
-      const missing = tc ? required.filter((a) => !(a in tc.args)) : required;
+      const missing = required.filter((a) => !(a in tc.args));
       content = `[error: missing required arguments: ${missing.join(", ")}]`;
     }
     this.pendingResults.push({ toolCallId: call.id, content, isError: true });
@@ -333,9 +349,9 @@ export class Agent {
     if (signal?.aborted) {
       return this.interruptBatch(signal);
     }
-    const tc = this.pendingCalls.find((c) => c.id === call.id);
+    const tc = this.currentPendingCall(call, "execTool");
     const tool = this.toolsByName.get(call.name);
-    if (!tc || !tool) {
+    if (!tool) {
       // Unreachable if the projection is faithful (the core only executes known
       // calls from the current batch) — surface loudly rather than guess.
       throw new Error(`internal: execTool for unknown call '${call.name}' (${call.id})`);
@@ -356,9 +372,9 @@ export class Agent {
     if (signal?.aborted) {
       return this.interruptBatch(signal);
     }
-    const tc = this.pendingCalls.find((c) => c.id === call.id);
+    const tc = this.currentPendingCall(call, "askUser");
     const tool = this.toolsByName.get(call.name);
-    if (!tc || !tool) {
+    if (!tool) {
       throw new Error(`internal: askUser for unknown call '${call.name}' (${call.id})`);
     }
     const answer: Answer = await promptUser(this.ask, this.st.cwd, tool, tc, call.req);

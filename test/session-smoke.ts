@@ -301,4 +301,60 @@ async function e2e(): Promise<void> {
 
 await e2e();
 
+// ── Duplicate tool-call ids execute in batch order ───────────────────────────
+// A provider may emit two calls that share an id but carry different args. The
+// shell must consume pending calls by the batch cursor, not by id lookup — else
+// both calls would resolve to the FIRST pending call and the tool would see
+// ["first", "first"] instead of ["first", "second"]. (This pins the cursor fix;
+// it would also catch any future revert to id-based lookup.)
+async function dupIdInBatchOrder(): Promise<void> {
+  const seen: string[] = [];
+  // A no-permission tool, so the core executes straight through (no prompt).
+  const recordTool: Tool = {
+    name: "record",
+    description: "Record a value (no permission needed).",
+    parameters: { type: "object", properties: { value: { type: "string" } }, required: ["value"] },
+    requiresPermission: false,
+    async execute(args) {
+      const v = String(args["value"]);
+      seen.push(v);
+      return `recorded ${v}`;
+    },
+  };
+
+  const provider = scriptedProvider([
+    {
+      text: "Recording twice.",
+      toolCalls: [
+        { id: "dup", name: "record", args: { value: "first" } },
+        { id: "dup", name: "record", args: { value: "second" } },
+      ],
+    },
+    { text: "Done." },
+  ]);
+
+  const baseConfig: PermConfig = {
+    pathBased: new Set(DEFAULT_PATH_BASED),
+    autoAllowCwd: new Set(DEFAULT_AUTO_ALLOW_CWD),
+    autoAllow: new Set(),
+    rejectPrompts: false,
+  };
+  const perms = mergePerms(baseConfig, []);
+  const state = emptyState(perms.autoAllow, perms.autoAllowCwd, perms.rejectPrompts);
+  const initial = initialSession(state, ["scratch"], 0, 6, 0);
+  const agent = new Agent(provider, [recordTool], perms, initial, scriptedAsk([]), undefined);
+
+  await agent.chat("record both");
+
+  check("dup-id: tool saw args in batch order", JSON.stringify(seen) === JSON.stringify(["first", "second"]));
+  const toolMsg = agent.messages[2];
+  check("dup-id: two paired results", toolMsg.toolResults.length === 2);
+  check(
+    "dup-id: results in batch order",
+    toolMsg.toolResults[0].content === "recorded first" && toolMsg.toolResults[1].content === "recorded second",
+  );
+}
+
+await dupIdInBatchOrder();
+
 console.log(`\x1b[32mAll ${n} checks passed.\x1b[0m`);
