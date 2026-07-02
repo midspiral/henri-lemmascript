@@ -11,7 +11,7 @@
   },
   "scripts": {
     "henri": "tsx src/cli.ts",
-    "test": "tsx test/smoke.ts && tsx test/session-smoke.ts",
+    "test": "tsx test/smoke.ts && tsx test/session-smoke.ts && tsx test/permission-escape.ts",
     "test:gve": "tsx test/gve.ts && tsx test/gve-plan.ts && tsx test/gve-demo.ts && tsx test/gve-smoke.ts",
     "typecheck": "tsc --noEmit",
     "gen": "node ../LemmaScript/tools/dist/lsc.js gen --backend=dafny",

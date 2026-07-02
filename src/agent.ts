@@ -249,7 +249,7 @@ export class Agent {
     return {
       id: tc.id,
       name: tc.name,
-      req: buildReq(this.pathBased, tc.name, tc),
+      req: buildReq(this.pathBased, this.st.cwd, tc.name, tc),
       known: tool !== undefined,
       noPerm: tool !== undefined && !tool.requiresPermission,
       argsOk: tool !== undefined && required.every((a) => a in tc.args),

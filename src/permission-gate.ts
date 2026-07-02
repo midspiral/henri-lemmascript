@@ -5,9 +5,10 @@
 // grantFor/grantAll transition (session.ts onPromptAnswer). This layer only
 // maps a concrete (Tool, ToolCall) to a Req and asks the user.
 
+import * as fs from "node:fs";
 import type { ToolCall } from "./messages.ts";
 import type { Tool } from "./tools/base.ts";
-import { decide, grantAll, grantFor, normalize, resolvePath, type PermState, type Req } from "./permissions.ts";
+import { decide, grantAll, grantFor, normalize, normalizeFrom, resolvePath, type PermState, type Req } from "./permissions.ts";
 import type { Answer } from "./session.ts";
 import { color, panel } from "./ui.ts";
 
@@ -27,18 +28,67 @@ export function emptyState(autoAllow: Set<string>, autoAllowCwd: Set<string>, re
 }
 
 export function currentCwd(): string[] {
-  return normalize(process.cwd().split("/"));
+  let cwd = process.cwd();
+  try {
+    cwd = fs.realpathSync(cwd);
+  } catch {
+    // Keep the lexical cwd if realpath fails (should not happen for an extant cwd).
+  }
+  return normalize(cwd.split("/"));
+}
+
+/** Symlink-faithful resolution of an absolute (already-normalized) segment list:
+ *  realpath the deepest EXISTING ancestor and keep any non-existent tail, so a
+ *  write target that does not exist yet still resolves symlinks in its parents.
+ *  This is the trusted OS boundary — the containment DECISION over the result is
+ *  the verified isWithin. It is what makes P2 hold at runtime rather than only
+ *  over lexical segments: a symlink inside cwd pointing outside now resolves to
+ *  its real (out-of-cwd) location before the gate decides. */
+function realpathFaithful(absSegs: string[]): string[] {
+  const tail: string[] = [];
+  let probe = absSegs.slice();
+  while (probe.length > 0) {
+    try {
+      const real = fs.realpathSync("/" + probe.join("/"));
+      return normalize([...real.split("/"), ...tail]);
+    } catch {
+      tail.unshift(probe[probe.length - 1]);
+      probe = probe.slice(0, -1);
+    }
+  }
+  return normalize(tail);
+}
+
+/** The permission request for a path tool. The reach the gate decides on is the
+ *  symlink-faithful resolution of the target — and, for `glob`, the PATTERN is
+ *  folded in, because glob's traversal is driven by the pattern, not the path:
+ *  `glob({ path: ".", pattern: "../*.pem" })` reaches OUTSIDE cwd even though its
+ *  path is inside it. Folding the pattern through the verified `normalizeFrom`
+ *  makes that `..` participate in containment (`isWithin`), so the escape the gate
+ *  used to miss is now seen. Returned as absolute segments (`absolute: true`), so
+ *  the verified `resolvePath` normalizes them in place. */
+function buildPathReq(cwd: string[], toolName: string, call: ToolCall): Req {
+  const raw = typeof call.args["path"] === "string" ? (call.args["path"] as string) : ".";
+  const absolute = raw.startsWith("/");
+  const baseLexical = absolute ? normalize(raw.split("/")) : normalize([...cwd, ...raw.split("/")]);
+  let reach = realpathFaithful(baseLexical);
+  if (toolName === "glob") {
+    const pattern = typeof call.args["pattern"] === "string" ? (call.args["pattern"] as string) : "";
+    reach = normalizeFrom(reach, pattern.split("/"));
+  }
+  return { kind: "path", tool: toolName, segs: reach, absolute: true };
 }
 
 /** Project a concrete tool call onto the permission request the verified core
- *  decides on. (The trusted projection — same as it ever was.) */
-export function buildReq(pathBased: Set<string>, toolName: string, call: ToolCall): Req {
+ *  decides on. The trusted projection: it now resolves symlinks (realpath) and
+ *  folds glob's pattern, so the segments handed to the verified `decide` faithfully
+ *  represent the effect the tool will have. */
+export function buildReq(pathBased: Set<string>, cwd: string[], toolName: string, call: ToolCall): Req {
   if (toolName === "bash") {
     return { kind: "bash", command: typeof call.args["command"] === "string" ? (call.args["command"] as string) : "" };
   }
   if (pathBased.has(toolName)) {
-    const raw = typeof call.args["path"] === "string" ? (call.args["path"] as string) : ".";
-    return { kind: "path", tool: toolName, segs: raw.split("/"), absolute: raw.startsWith("/") };
+    return buildPathReq(cwd, toolName, call);
   }
   return { kind: "other", tool: toolName };
 }
@@ -99,7 +149,7 @@ export class InteractiveGate {
 
   async check(tool: Tool, call: ToolCall): Promise<boolean> {
     if (!tool.requiresPermission) return true;
-    const req = buildReq(this.pathBased, tool.name, call);
+    const req = buildReq(this.pathBased, this.cwd, tool.name, call);
     const outcome = decide(this.state, this.cwd, req);
     if (outcome === "Allow") return true;
     if (outcome === "Deny") {
