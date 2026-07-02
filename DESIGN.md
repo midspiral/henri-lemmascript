@@ -94,8 +94,10 @@ match → per-path grant → auto-allow-in-cwd → allowed-tool → reject/promp
 
 **Paths are modeled as already-split, normalized segment arrays.** Normalization
 (`.`/`..` resolution) is done *inside* the verified core over `string[]`, so the
-only thing the shell is trusted to do is `path.resolve(p).split('/')`. This sidesteps
-string-parsing limits and makes the traversal proof self-contained.
+only thing the shell is trusted to do is resolve a target to real absolute segments
+(`fs.realpath` on the existing prefix, then `.split('/')`, plus folding `glob`'s
+pattern onto the base). This sidesteps string-parsing limits and makes the traversal
+proof self-contained.
 
 **Properties to prove:**
 
@@ -221,9 +223,13 @@ advances **one character** (`occurs`, `afterFirst`, `replaceFirst`) or shrinks
 
 Explicitly outside the verified core, and why it's acceptable:
 
-- **Path resolution.** The shell calls `path.resolve(p).split('/')`; we trust it
-  produces the segments our `normalize`/`isWithin` reason over. (Normalization logic
-  itself is verified.) Symlink resolution is a runtime concern, not modeled.
+- **Path resolution.** The shell (`permission-gate.ts: buildReq`) resolves a path
+  tool's target to real absolute segments — `fs.realpath` on the existing prefix, then
+  `.split('/')` — and folds `glob`'s traversal-bearing pattern onto the base; we trust
+  those produce the segments our `normalize`/`isWithin` reason over. (Normalization and
+  containment are verified.) Symlink resolution is now done here (realpath) rather than
+  ignored, because `read_file` follows symlinks; realpath is the trusted OS call, the
+  containment decision over its result is the verified `isWithin`.
 - **Provider streaming, terminal UI, subprocess execution, network** — entirely
   unverified TypeScript.
 - **Tool `args` and result `content`** — opaque strings to the proofs; pairing and

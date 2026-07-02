@@ -9,7 +9,7 @@ against Anthropic and AWS Bedrock end to end. The proven functions are not a
 side model: `decide()` gates every tool call, `pairs`/`wellFormed` are checked
 on every turn of the real loop, and `editFile`/`replaceFirst` back the edit tool.
 
-**76 Dafny verification conditions, 0 errors**, across four modules. Reproduce with
+**78 Dafny verification conditions, 0 errors**, across four modules. Reproduce with
 `npm run verify` (regenerates each `.dfy.gen` merge base, enforces additions-only
 against the proof `.dfy`, runs Dafny); CI in
 [`.github/workflows/lemmascript.yml`](.github/workflows/lemmascript.yml).
@@ -21,12 +21,17 @@ no semantic gap: the annotated `.ts` is the production code the agent runs.
 
 ---
 
-## 1. `permissions.ts` — the access decision (14 VCs)
+## 1. `permissions.ts` — the access decision (16 VCs)
 
 The pure gate `decide(st, cwd, req): Outcome` (`Allow`/`Deny`/`Prompt`), mirroring
 henri's `PermissionManager.check()`. Paths are modeled as **normalized segment
 sequences** — `.`/`..` resolution (`normalizeFrom`) is verified in-core, so the shell
-is trusted only to `path.resolve(p).split('/')`.
+projection (`permission-gate.ts: buildReq`) is trusted only to resolve a call's target
+to real absolute segments: `fs.realpath` on the existing prefix (symlink-faithful), then
+`.split('/')`. Two escapes that lived in that projection are now closed there — a
+`glob` whose **pattern** (not path) carries `../`, and a **symlink** inside cwd pointing
+out — with the in-core mechanism witnessed by `GlobPatternEscapeWitness` /
+`SymlinkSiblingWitness` and pinned by `test/permission-escape.ts`.
 
 | Property | Lemma | Statement |
 |----------|-------|-----------|
@@ -34,6 +39,8 @@ is trusted only to `path.resolve(p).split('/')`.
 | **P2 containment** *(headline)* | `P2_AutoGrantImpliesWithin` | With no `allowAll`, no `autoAllow`, no explicit per-path grant: `decide(path…).Allow? ⟹ isWithin(cwd, resolvePath(…))`. Auto-allow-in-cwd can **never** reach outside cwd. |
 | P2 dual | `P2_NoEscape` | A path that escapes cwd, with no other grant, is never `Allow`. |
 | P2 witness | `P2_EscapeWitness` | Concrete: `../../x` from cwd `a/b` resolves to `["x"]`, which is not within `a/b`. |
+| P2 glob witness | `GlobPatternEscapeWitness` | Folding a `../` **pattern** onto the base (`normalizeFrom([root,project], [.., x]) == [root, x]`) escapes cwd — so a `glob` whose pattern (not path) climbs out fails `isWithin` and cannot be auto-allowed. |
+| P2 symlink witness | `SymlinkSiblingWitness` | Once resolved to its real location, a symlink to a sibling (`[root, secret]`) is not within cwd `[root, project]` — the in-core half of the realpath projection fix. |
 | **P3 monotonicity** | `P3_GrantBashMonotone`, `P3_GrantPathMonotone`, `P3_AllowAllGrantsEverything`, `P3_GrowAutoSetsMonotone` | Adding any grant (exact command, per-path, allow-all, or growing the auto-allow sets) only turns `Deny`/`Prompt` into `Allow`, never the reverse. (`PathGrantedAppendMonotone` is the per-path induction.) |
 | **P4 reject-safety** | `P4_RejectIsDenyOnly` | Enabling `rejectPrompts` preserves the Allow set exactly and never yields `Prompt` — automation/bench mode cannot escalate beyond what was pre-authorized. |
 
@@ -114,11 +121,16 @@ and `replaceFirst` for the single splice; the all-occurrence join stays shell.
   network (`web_fetch`)** — effectful shell.
 - **Interactive permission prompting + session-grant mutation** (`permission-gate.ts`)
   — but every actual allow/deny flows through the verified `decide`.
-- **Boundary projections trusted to be faithful:** the shell does
-  `path.resolve().split('/')` (the in-core `normalize` does the rest); projects runtime
-  messages to the `TMsg` model (`toTranscript`); projects file content/strings to char
-  sequences via `[...s]` / `join("")` for `edit.ts` (the `replace_all` join stays shell);
-  and the real `Tool` flows at runtime while proofs reason about `Tool.name`.
+- **Boundary projections trusted to be faithful:** the shell's `buildReq` resolves a
+  path tool's target to real absolute segments — `fs.realpath` on the existing prefix
+  (so a symlink inside cwd resolves to its true out-of-cwd location) and, for `glob`,
+  folds the traversal-bearing **pattern** onto the base — before the verified `decide`
+  sees it; realpath itself is the trusted OS call, the containment decision over its
+  result is the verified `isWithin` (`GlobPatternEscapeWitness` / `SymlinkSiblingWitness`).
+  The shell also projects runtime messages to the `TMsg` model (`toTranscript`); projects
+  file content/strings to char sequences via `[...s]` / `join("")` for `edit.ts` (the
+  `replace_all` join stays shell); and the real `Tool` flows at runtime while proofs
+  reason about `Tool.name`.
 - **Numbers** are mathematical integers (henri's only numbers are token/turn counts).
 
 ## Proof techniques of note
@@ -134,7 +146,7 @@ and `replaceFirst` for the single splice; the all-occurrence join stays shell.
 ## Reproduce
 
 ```sh
-npm run verify     # ../LemmaScript/tools/check.sh dafny over LemmaScript-files.txt — 76 VCs
+npm run verify     # ../LemmaScript/tools/check.sh dafny over LemmaScript-files.txt — 78 VCs
 npm run typecheck  # tsc --noEmit
 npm test           # runtime witnesses for the verified properties
 ```
