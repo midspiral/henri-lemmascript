@@ -200,6 +200,28 @@ lemma {:fuel normalizeFrom, 7, 8} P2_EscapeWitness()
 {
 }
 
+// Witness for the glob-pattern fix (permission-gate.ts buildPathReq). glob's reach
+// is base ++ pattern; folding a `..`-bearing pattern through normalizeFrom lets the
+// `..` climb OUT of the base. Here base = cwd = [root, project] and pattern = ../x
+// escapes to [root, x], which is NOT within cwd — so the folded reach fails isWithin
+// and the gate cannot auto-allow it. (Before the fix, the gate saw only path=".",
+// which IS within cwd, and auto-allowed the out-of-cwd glob.)
+lemma {:fuel normalizeFrom, 7, 8} GlobPatternEscapeWitness()
+  ensures normalizeFrom(["root", "project"], ["..", "x"]) == ["root", "x"]
+  ensures !isWithin(["root", "project"], normalizeFrom(["root", "project"], ["..", "x"]))
+{
+}
+
+// Witness for the symlink fix (permission-gate.ts realpathFaithful). Once the target
+// is resolved to its REAL location, a symlink inside cwd that points at a sibling
+// resolves to that sibling — which is not within cwd, so the gate cannot auto-allow
+// it. This is the in-core half; realpath itself is the trusted OS boundary. cwd =
+// [root, project], real target = [root, secret]: a sibling, not within cwd.
+lemma SymlinkSiblingWitness()
+  ensures !isWithin(["root", "project"], ["root", "secret"])
+{
+}
+
 // Appending a grant preserves existing per-path coverage (needs list append).
 lemma PathGrantedAppendMonotone(grants: seq<PathGrant>, g: PathGrant, tool: string, resolved: seq<string>)
   ensures pathGranted(grants, tool, resolved) ==> pathGranted(grants + [g], tool, resolved)
