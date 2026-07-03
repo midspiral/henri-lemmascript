@@ -110,7 +110,8 @@ unspecified, chosen by the agent — and adopt them only through a gate:
 append-only guarantee ledger (no frozen contract may weaken or vanish), the
 prover, and the tests. Adopted hooks in `self/hooks/` enter through the
 verified `mergeTools`, so by theorem they can add tools but never shadow a
-trusted default. See [SELF.md](SELF.md).
+trusted default. See [SELF.md](SELF.md) (design) and
+[TUTORIAL_SELF.md](TUTORIAL_SELF.md) (the first live run).
 
 ## The verified core
 

@@ -2,6 +2,7 @@
 
 **Status:** demo (LICS keynote: *reasonable reflection*)
 **Branch:** `self-improvement`
+**Companion:** [TUTORIAL_SELF.md](TUTORIAL_SELF.md) — what happened on the first live run
 
 henri may extend itself with auxiliary tools of its own choosing. What makes
 open-ended self-modification *reasonable* is not reviewing each improvement in
@@ -69,7 +70,7 @@ enter through the verified merge.
 # once: commit the baseline ledger, so the gate has a past to protect
 npm run seal && git add SEALED.lock && git commit -m "baseline seal"
 
-npm run henri -- --provider anthropic --self
+npm run henri -- --self
 ```
 
 Then, in session — the improvement deliberately unspecified:
