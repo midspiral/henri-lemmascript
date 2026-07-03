@@ -102,6 +102,16 @@ CI ([`.github/workflows/lemmascript.yml`](.github/workflows/lemmascript.yml)) do
 typecheck + smoke, and fails if any generated file is stale. Requires a sibling
 `../LemmaScript` checkout and Dafny ≥ 4.x.
 
+## Self-improvement (this branch)
+
+With `--self`, henri may write itself new auxiliary tools — improvement
+unspecified, chosen by the agent — and adopt them only through a gate:
+[`lemmascript-seal`](https://github.com/midspiral/lemmascript-seal)'s
+append-only guarantee ledger (no frozen contract may weaken or vanish), the
+prover, and the tests. Adopted hooks in `self/hooks/` enter through the
+verified `mergeTools`, so by theorem they can add tools but never shadow a
+trusted default. See [SELF.md](SELF.md).
+
 ## The verified core
 
 For the exact theorems (every lemma, its statement, and the proof techniques), see

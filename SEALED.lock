@@ -1,0 +1,1410 @@
+{
+  "note": "Guarantee ledger. Append-only. Each entry is a frozen contract; never edit or remove.",
+  "sealedAt": "(set on first real commit)",
+  "sealed": [
+    {
+      "symbol": "editFile",
+      "file": "src/edit.ts",
+      "signature": "(content: seq<string>, old: seq<string>, all: bool): Edit",
+      "requires": [
+        "old.length > 0"
+      ],
+      "ensures": [
+        "(\\result.kind === \"Ambiguous\") === (manyOcc(content, old) && !all)",
+        "(\\result.kind === \"NotFound\") === !occurs(content, old)",
+        "(\\result.kind === \"Replaced\") === (occurs(content, old) && (!manyOcc(content, old) || all))"
+      ],
+      "decreases": null,
+      "hash": "ff1aad176c894527"
+    },
+    {
+      "symbol": "noMatchIdentity",
+      "file": "src/edit.ts",
+      "signature": "(hay: seq<string>, old: seq<string>, repl: seq<string>): bool",
+      "requires": [
+        "!occurs(hay, old)"
+      ],
+      "ensures": [
+        "replaceFirst(hay, old, repl) === hay"
+      ],
+      "decreases": null,
+      "hash": "fbe6e5400e08c421"
+    },
+    {
+      "symbol": "spliceLength",
+      "file": "src/edit.ts",
+      "signature": "(hay: seq<string>, old: seq<string>, repl: seq<string>): bool",
+      "requires": [
+        "occurs(hay, old)"
+      ],
+      "ensures": [
+        "replaceFirst(hay, old, repl).length === hay.length - old.length + repl.length"
+      ],
+      "decreases": null,
+      "hash": "6ffbbc86b21daa36"
+    },
+    {
+      "symbol": "spliceNoop",
+      "file": "src/edit.ts",
+      "signature": "(hay: seq<string>, old: seq<string>): bool",
+      "requires": [],
+      "ensures": [
+        "replaceFirst(hay, old, old) === hay"
+      ],
+      "decreases": null,
+      "hash": "5bd788612982b315"
+    },
+    {
+      "symbol": "allBinds",
+      "file": "src/gve/exec_core.ts",
+      "signature": "(steps: seq<EStep>): seq<string>",
+      "requires": [],
+      "ensures": [],
+      "decreases": "steps.length",
+      "hash": "ea76b1a50b9b5f48"
+    },
+    {
+      "symbol": "allBound",
+      "file": "src/gve/exec_core.ts",
+      "signature": "(reads: seq<string>, bound: seq<string>): bool",
+      "requires": [],
+      "ensures": [],
+      "decreases": "reads.length",
+      "hash": "73828883201d60b9"
+    },
+    {
+      "symbol": "allReadsBound",
+      "file": "src/gve/exec_core.ts",
+      "signature": "(steps: seq<EStep>, b: seq<string>): bool",
+      "requires": [],
+      "ensures": [],
+      "decreases": "steps.length",
+      "hash": "d8a813629c8d18aa"
+    },
+    {
+      "symbol": "contains",
+      "file": "src/gve/exec_core.ts",
+      "signature": "(xs: seq<string>, y: string): bool",
+      "requires": [],
+      "ensures": [],
+      "decreases": "xs.length",
+      "hash": "daf33e2b5dd13c91"
+    },
+    {
+      "symbol": "execOk",
+      "file": "src/gve/exec_core.ts",
+      "signature": "(steps: seq<EStep>, bound: seq<string>): bool",
+      "requires": [],
+      "ensures": [],
+      "decreases": "steps.length",
+      "hash": "46a95f47dc7f6859"
+    },
+    {
+      "symbol": "fixIsStrengthening",
+      "file": "src/gve/exec_core.ts",
+      "signature": "(steps: seq<EStep>): bool",
+      "requires": [],
+      "ensures": [
+        "execOk(steps, []) ==> okAllBinds(steps)"
+      ],
+      "decreases": null,
+      "hash": "7a6c4a533e8ee08b"
+    },
+    {
+      "symbol": "forwardRefGap",
+      "file": "src/gve/exec_core.ts",
+      "signature": "(): bool",
+      "requires": [],
+      "ensures": [
+        "execOk(forwardRefPlan(), []) === false",
+        "okAllBinds(forwardRefPlan()) === true"
+      ],
+      "decreases": null,
+      "hash": "f8f1b4a947c38249"
+    },
+    {
+      "symbol": "forwardRefPlan",
+      "file": "src/gve/exec_core.ts",
+      "signature": "(): seq<EStep>",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "92180d0851db511d"
+    },
+    {
+      "symbol": "okAllBinds",
+      "file": "src/gve/exec_core.ts",
+      "signature": "(steps: seq<EStep>): bool",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "fc0d984b57dbabde"
+    },
+    {
+      "symbol": "allRemoves",
+      "file": "src/hooks.ts",
+      "signature": "(hooks: seq<Hook>): seq<string>",
+      "requires": [],
+      "ensures": [],
+      "decreases": "hooks.length",
+      "hash": "06febb4184ae705e"
+    },
+    {
+      "symbol": "allTools",
+      "file": "src/hooks.ts",
+      "signature": "(defaults: seq<Tool>, hooks: seq<Hook>): seq<Tool>",
+      "requires": [],
+      "ensures": [],
+      "decreases": "hooks.length",
+      "hash": "b14e6241f7cea9d1"
+    },
+    {
+      "symbol": "contains",
+      "file": "src/hooks.ts",
+      "signature": "(xs: seq<string>, x: string): bool",
+      "requires": [],
+      "ensures": [],
+      "decreases": "xs.length",
+      "hash": "35b5d04841fb026b"
+    },
+    {
+      "symbol": "containsCorrect",
+      "file": "src/hooks.ts",
+      "signature": "(xs: seq<string>, x: string): bool",
+      "requires": [],
+      "ensures": [
+        "contains(xs, x) === xs.includes(x)"
+      ],
+      "decreases": "xs.length",
+      "hash": "f14bb152b7367e50"
+    },
+    {
+      "symbol": "coverage",
+      "file": "src/hooks.ts",
+      "signature": "(defaults: seq<Tool>, hooks: seq<Hook>, name: string): bool",
+      "requires": [
+        "!contains(allRemoves(hooks), name)",
+        "hasName(allTools(defaults, hooks), name)"
+      ],
+      "ensures": [
+        "hasName(mergeTools(defaults, hooks), name)"
+      ],
+      "decreases": null,
+      "hash": "0aaf9d6e5418d144"
+    },
+    {
+      "symbol": "dedupTools",
+      "file": "src/hooks.ts",
+      "signature": "(acc: seq<Tool>, tools: seq<Tool>, removes: seq<string>): seq<Tool>",
+      "requires": [],
+      "ensures": [],
+      "decreases": "tools.length",
+      "hash": "530c37391dbf28a3"
+    },
+    {
+      "symbol": "distinctMergedNames",
+      "file": "src/hooks.ts",
+      "signature": "(defaults: seq<Tool>, hooks: seq<Hook>): bool",
+      "requires": [],
+      "ensures": [
+        "forall(i, forall(j, (0 <= i && i < j && j < mergeTools(defaults, hooks).length) ==> mergeTools(defaults, hooks)[i].name !== mergeTools(defaults, hooks)[j].name))"
+      ],
+      "decreases": null,
+      "hash": "d0633aa2e928ebf8"
+    },
+    {
+      "symbol": "flatten",
+      "file": "src/hooks.ts",
+      "signature": "(parts: seq<seq<string>>): seq<string>",
+      "requires": [],
+      "ensures": [],
+      "decreases": "parts.length",
+      "hash": "3646247a3bc3e9ad"
+    },
+    {
+      "symbol": "flattenMembership",
+      "file": "src/hooks.ts",
+      "signature": "(parts: seq<seq<string>>, x: string): bool",
+      "requires": [],
+      "ensures": [
+        "flatten(parts).includes(x) === exists(i, 0 <= i && i < parts.length && parts[i].includes(x))"
+      ],
+      "decreases": "parts.length",
+      "hash": "a3de856eea42f5e5"
+    },
+    {
+      "symbol": "gather",
+      "file": "src/hooks.ts",
+      "signature": "(base: seq<string>, parts: seq<seq<string>>): seq<string>",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "db75e69577a713f8"
+    },
+    {
+      "symbol": "gatherCommutes",
+      "file": "src/hooks.ts",
+      "signature": "(base: seq<string>, p: seq<string>, q: seq<string>, x: string): bool",
+      "requires": [],
+      "ensures": [
+        "gather(base, [p, q]).includes(x) === gather(base, [q, p]).includes(x)"
+      ],
+      "decreases": null,
+      "hash": "5356373be7a2cbc6"
+    },
+    {
+      "symbol": "gatherGrows",
+      "file": "src/hooks.ts",
+      "signature": "(base: seq<string>, parts: seq<seq<string>>, x: string): bool",
+      "requires": [
+        "contains(base, x)"
+      ],
+      "ensures": [
+        "contains(gather(base, parts), x)"
+      ],
+      "decreases": null,
+      "hash": "1dfb4d50979381a1"
+    },
+    {
+      "symbol": "gatherMembership",
+      "file": "src/hooks.ts",
+      "signature": "(base: seq<string>, parts: seq<seq<string>>, x: string): bool",
+      "requires": [],
+      "ensures": [
+        "contains(gather(base, parts), x) === (contains(base, x) || exists(i, 0 <= i && i < parts.length && contains(parts[i], x)))"
+      ],
+      "decreases": null,
+      "hash": "3911c6bc279351dc"
+    },
+    {
+      "symbol": "hasName",
+      "file": "src/hooks.ts",
+      "signature": "(tools: seq<Tool>, name: string): bool",
+      "requires": [],
+      "ensures": [],
+      "decreases": "tools.length",
+      "hash": "88f7067dc1bf639f"
+    },
+    {
+      "symbol": "hasNameCorrect",
+      "file": "src/hooks.ts",
+      "signature": "(tools: seq<Tool>, name: string): bool",
+      "requires": [],
+      "ensures": [
+        "hasName(tools, name) === exists(i, 0 <= i && i < tools.length && tools[i].name === name)"
+      ],
+      "decreases": "tools.length",
+      "hash": "d9e96f0f8b7a1bc6"
+    },
+    {
+      "symbol": "mergeTools",
+      "file": "src/hooks.ts",
+      "signature": "(defaults: seq<Tool>, hooks: seq<Hook>): seq<Tool>",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "2503d44fd3fd4c6c"
+    },
+    {
+      "symbol": "removedExcluded",
+      "file": "src/hooks.ts",
+      "signature": "(defaults: seq<Tool>, hooks: seq<Hook>, name: string): bool",
+      "requires": [
+        "contains(allRemoves(hooks), name)"
+      ],
+      "ensures": [
+        "!hasName(mergeTools(defaults, hooks), name)"
+      ],
+      "decreases": null,
+      "hash": "7a2e125e2a7d6b86"
+    },
+    {
+      "symbol": "allowAllGrantsEverything",
+      "file": "src/permissions.ts",
+      "signature": "(st: PermState, cwd: seq<string>, req: Req): bool",
+      "requires": [
+        "st.allowAll"
+      ],
+      "ensures": [
+        "isAllowed(st, cwd, req)"
+      ],
+      "decreases": null,
+      "hash": "01f12b5f00fc912f"
+    },
+    {
+      "symbol": "autoGrantImpliesWithin",
+      "file": "src/permissions.ts",
+      "signature": "(st: PermState, cwd: seq<string>, req: Req): bool",
+      "requires": [
+        "!pathGranted(st.allowedPaths, req.tool, resolvePath(cwd, req.segs, req.absolute))",
+        "!st.allowAll",
+        "!st.autoAllow.has(req.tool)",
+        "isAllowed(st, cwd, req)",
+        "req.kind === \"path\""
+      ],
+      "ensures": [
+        "isWithin(cwd, resolvePath(cwd, req.segs, req.absolute))"
+      ],
+      "decreases": null,
+      "hash": "d32e1b3a9a451c8c"
+    },
+    {
+      "symbol": "decide",
+      "file": "src/permissions.ts",
+      "signature": "(st: PermState, cwd: seq<string>, req: Req): Outcome",
+      "requires": [],
+      "ensures": [
+        "(\\result === \"Allow\") === isAllowed(st, cwd, req)",
+        "st.rejectPrompts ==> \\result !== \"Prompt\""
+      ],
+      "decreases": null,
+      "hash": "bf22be8966a402dd"
+    },
+    {
+      "symbol": "grantAll",
+      "file": "src/permissions.ts",
+      "signature": "(st: PermState, cwd: seq<string>, req: Req): PermState",
+      "requires": [],
+      "ensures": [
+        "\\result.rejectPrompts === st.rejectPrompts",
+        "isAllowed(\\result, cwd, req)"
+      ],
+      "decreases": null,
+      "hash": "03c3588eb3624a3a"
+    },
+    {
+      "symbol": "grantFor",
+      "file": "src/permissions.ts",
+      "signature": "(st: PermState, cwd: seq<string>, req: Req): PermState",
+      "requires": [],
+      "ensures": [
+        "\\result.allowAll === st.allowAll",
+        "\\result.autoAllow === st.autoAllow",
+        "\\result.autoAllowCwd === st.autoAllowCwd",
+        "\\result.rejectPrompts === st.rejectPrompts",
+        "isAllowed(\\result, cwd, req)"
+      ],
+      "decreases": null,
+      "hash": "5ff8e2a4576cbc74"
+    },
+    {
+      "symbol": "grantMonotone",
+      "file": "src/permissions.ts",
+      "signature": "(st: PermState, st2: PermState, cwd: seq<string>, req: Req): bool",
+      "requires": [
+        "isAllowed(st, cwd, req)",
+        "st.allowedBashCommands <= st2.allowedBashCommands",
+        "st.allowedTools <= st2.allowedTools",
+        "st.autoAllow <= st2.autoAllow",
+        "st.autoAllowCwd <= st2.autoAllowCwd",
+        "st2.allowAll === st.allowAll",
+        "st2.allowedPaths === st.allowedPaths"
+      ],
+      "ensures": [
+        "isAllowed(st2, cwd, req)"
+      ],
+      "decreases": null,
+      "hash": "5da0678f135d670a"
+    },
+    {
+      "symbol": "grantPreservesAllowed",
+      "file": "src/permissions.ts",
+      "signature": "(st: PermState, cwd: seq<string>, req: Req, pcwd: seq<string>, prior: Req): bool",
+      "requires": [
+        "isAllowed(st, pcwd, prior)"
+      ],
+      "ensures": [
+        "isAllowed(grantFor(st, cwd, req), pcwd, prior)"
+      ],
+      "decreases": null,
+      "hash": "0983e6612fa926b1"
+    },
+    {
+      "symbol": "noEscape",
+      "file": "src/permissions.ts",
+      "signature": "(st: PermState, cwd: seq<string>, req: Req): bool",
+      "requires": [
+        "!isWithin(cwd, resolvePath(cwd, req.segs, req.absolute))",
+        "!pathGranted(st.allowedPaths, req.tool, resolvePath(cwd, req.segs, req.absolute))",
+        "!st.allowAll",
+        "!st.autoAllow.has(req.tool)",
+        "req.kind === \"path\""
+      ],
+      "ensures": [
+        "!isAllowed(st, cwd, req)"
+      ],
+      "decreases": null,
+      "hash": "42043a983b09c7ce"
+    },
+    {
+      "symbol": "rejectIsDenyOnly",
+      "file": "src/permissions.ts",
+      "signature": "(st: PermState, st2: PermState, cwd: seq<string>, req: Req): Outcome",
+      "requires": [
+        "st2.allowAll === st.allowAll",
+        "st2.allowedBashCommands === st.allowedBashCommands",
+        "st2.allowedPaths === st.allowedPaths",
+        "st2.allowedTools === st.allowedTools",
+        "st2.autoAllow === st.autoAllow",
+        "st2.autoAllowCwd === st.autoAllowCwd",
+        "st2.rejectPrompts"
+      ],
+      "ensures": [
+        "(\\result === \"Allow\") === isAllowed(st, cwd, req)",
+        "\\result !== \"Prompt\""
+      ],
+      "decreases": null,
+      "hash": "c97b721771814f30"
+    },
+    {
+      "symbol": "advance",
+      "file": "src/session.ts",
+      "signature": "(st: Session, calls: seq<SCall>, done: seq<TToolResult>): StepOut",
+      "requires": [
+        "calls.length > 0",
+        "done.length < calls.length",
+        "pairsTo(projectCalls(calls), done)",
+        "wellFormed(st.msgs)"
+      ],
+      "ensures": [],
+      "decreases": "calls.length - done.length",
+      "hash": "ebc4a194a32e39e1"
+    },
+    {
+      "symbol": "anchorOutcome",
+      "file": "src/session.ts",
+      "signature": "(o: Outcome): Outcome",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "f0cb007c104fca79"
+    },
+    {
+      "symbol": "anchorReq",
+      "file": "src/session.ts",
+      "signature": "(req: Req): Req",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "3b9ae372452bade2"
+    },
+    {
+      "symbol": "anchorTCall",
+      "file": "src/session.ts",
+      "signature": "(c: TToolCall): TToolCall",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "83ee5ff09c8a437e"
+    },
+    {
+      "symbol": "approvedCurrent",
+      "file": "src/session.ts",
+      "signature": "(st: Session, calls: seq<SCall>, done: seq<TToolResult>, c: SCall): StepOut",
+      "requires": [
+        "calls.length > 0",
+        "done.length < calls.length",
+        "pairsTo(projectCalls(calls), done)",
+        "wellFormed(st.msgs)"
+      ],
+      "ensures": [],
+      "decreases": null,
+      "hash": "3a0b593159678fff"
+    },
+    {
+      "symbol": "batchMeasure",
+      "file": "src/session.ts",
+      "signature": "(st: Session): int",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "e52379d5d35e22f2"
+    },
+    {
+      "symbol": "cmdAskUser",
+      "file": "src/session.ts",
+      "signature": "(call: SCall): SCommand",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "e4510cac9e100cf3"
+    },
+    {
+      "symbol": "cmdCallProvider",
+      "file": "src/session.ts",
+      "signature": "(): SCommand",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "92e60549c74a88f4"
+    },
+    {
+      "symbol": "cmdExecTool",
+      "file": "src/session.ts",
+      "signature": "(call: SCall): SCommand",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "e4510cac9e100cf3"
+    },
+    {
+      "symbol": "cmdSkipTool",
+      "file": "src/session.ts",
+      "signature": "(call: SCall, reason: Verdict): SCommand",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "8341d42b2bc8b266"
+    },
+    {
+      "symbol": "cmdSummarize",
+      "file": "src/session.ts",
+      "signature": "(cut: int): SCommand",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "6ce17ccacefb334f"
+    },
+    {
+      "symbol": "finishBatch",
+      "file": "src/session.ts",
+      "signature": "(st: Session, calls: seq<SCall>, done: seq<TToolResult>, stopped: bool): StepOut",
+      "requires": [
+        "calls.length > 0",
+        "pairs(projectCalls(calls), done)",
+        "wellFormed(st.msgs)"
+      ],
+      "ensures": [],
+      "decreases": null,
+      "hash": "652367937b785798"
+    },
+    {
+      "symbol": "initialSession",
+      "file": "src/session.ts",
+      "signature": "(perms: PermState, cwd: seq<string>, maxTurns: int, compactKeep: int, autoCompactAt: int): Session",
+      "requires": [],
+      "ensures": [
+        "inv(\\result)"
+      ],
+      "decreases": null,
+      "hash": "0ef350cbbd0d1423"
+    },
+    {
+      "symbol": "inv",
+      "file": "src/session.ts",
+      "signature": "(st: Session): bool",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "85ae431ae130b49b"
+    },
+    {
+      "symbol": "justified",
+      "file": "src/session.ts",
+      "signature": "(st: Session, st2: Session, ev: SEvent, c: SCall): bool",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "11feed3185fa101c"
+    },
+    {
+      "symbol": "maybeAutoCompact",
+      "file": "src/session.ts",
+      "signature": "(st: Session): StepOut",
+      "requires": [
+        "wellFormed(st.msgs)"
+      ],
+      "ensures": [],
+      "decreases": null,
+      "hash": "6efaced9dda4f19e"
+    },
+    {
+      "symbol": "onBatchInterrupted",
+      "file": "src/session.ts",
+      "signature": "(st: Session): StepOut",
+      "requires": [
+        "inv(st)"
+      ],
+      "ensures": [],
+      "decreases": null,
+      "hash": "6b2504a7d8f3e64d"
+    },
+    {
+      "symbol": "onCompactRequest",
+      "file": "src/session.ts",
+      "signature": "(st: Session, keep: int): StepOut",
+      "requires": [
+        "inv(st)"
+      ],
+      "ensures": [],
+      "decreases": null,
+      "hash": "61f5f87bc50eca72"
+    },
+    {
+      "symbol": "onPromptAnswer",
+      "file": "src/session.ts",
+      "signature": "(st: Session, answer: Answer): StepOut",
+      "requires": [
+        "inv(st)"
+      ],
+      "ensures": [],
+      "decreases": null,
+      "hash": "2d31c8b5b8953bc7"
+    },
+    {
+      "symbol": "onProviderInterrupted",
+      "file": "src/session.ts",
+      "signature": "(st: Session): StepOut",
+      "requires": [
+        "inv(st)"
+      ],
+      "ensures": [],
+      "decreases": null,
+      "hash": "6b2504a7d8f3e64d"
+    },
+    {
+      "symbol": "onProviderReply",
+      "file": "src/session.ts",
+      "signature": "(st: Session, calls: seq<SCall>, contextTokens: int): StepOut",
+      "requires": [
+        "inv(st)"
+      ],
+      "ensures": [],
+      "decreases": null,
+      "hash": "e0548fcfe381ac91"
+    },
+    {
+      "symbol": "onSummaryReady",
+      "file": "src/session.ts",
+      "signature": "(st: Session, ok: bool): StepOut",
+      "requires": [
+        "inv(st)"
+      ],
+      "ensures": [],
+      "decreases": null,
+      "hash": "13aecb8000958495"
+    },
+    {
+      "symbol": "onToolDone",
+      "file": "src/session.ts",
+      "signature": "(st: Session, isError: bool): StepOut",
+      "requires": [
+        "inv(st)"
+      ],
+      "ensures": [],
+      "decreases": null,
+      "hash": "6041a7c937a72c45"
+    },
+    {
+      "symbol": "onUserInput",
+      "file": "src/session.ts",
+      "signature": "(st: Session): StepOut",
+      "requires": [
+        "inv(st)"
+      ],
+      "ensures": [],
+      "decreases": null,
+      "hash": "6b2504a7d8f3e64d"
+    },
+    {
+      "symbol": "pairsModel",
+      "file": "src/session.ts",
+      "signature": "(calls: seq<TToolCall>, results: seq<TToolResult>): bool",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "3b85c0ecd26c2f37"
+    },
+    {
+      "symbol": "phAwaitingPrompt",
+      "file": "src/session.ts",
+      "signature": "(calls: seq<SCall>, done: seq<TToolResult>): SPhase",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "f805f9a398b6e0c7"
+    },
+    {
+      "symbol": "phAwaitingProvider",
+      "file": "src/session.ts",
+      "signature": "(): SPhase",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "49749d1613da525f"
+    },
+    {
+      "symbol": "phAwaitingSummary",
+      "file": "src/session.ts",
+      "signature": "(cut: int): SPhase",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "8fd54908569362ff"
+    },
+    {
+      "symbol": "phIdle",
+      "file": "src/session.ts",
+      "signature": "(): SPhase",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "49749d1613da525f"
+    },
+    {
+      "symbol": "phToolBatch",
+      "file": "src/session.ts",
+      "signature": "(calls: seq<SCall>, done: seq<TToolResult>): SPhase",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "f805f9a398b6e0c7"
+    },
+    {
+      "symbol": "projectCalls",
+      "file": "src/session.ts",
+      "signature": "(calls: seq<SCall>): seq<TToolCall>",
+      "requires": [],
+      "ensures": [
+        "\\result.length === calls.length"
+      ],
+      "decreases": "calls.length",
+      "hash": "261935ee41615561"
+    },
+    {
+      "symbol": "recordAndContinue",
+      "file": "src/session.ts",
+      "signature": "(st: Session, calls: seq<SCall>, done: seq<TToolResult>, isError: bool): StepOut",
+      "requires": [
+        "calls.length > 0",
+        "done.length < calls.length",
+        "pairsTo(projectCalls(calls), done)",
+        "wellFormed(st.msgs)"
+      ],
+      "ensures": [],
+      "decreases": null,
+      "hash": "80d111fb86c875e1"
+    },
+    {
+      "symbol": "requestProvider",
+      "file": "src/session.ts",
+      "signature": "(st: Session): StepOut",
+      "requires": [
+        "wellFormed(st.msgs)"
+      ],
+      "ensures": [],
+      "decreases": null,
+      "hash": "6efaced9dda4f19e"
+    },
+    {
+      "symbol": "runSession",
+      "file": "src/session.ts",
+      "signature": "(st: Session, events: seq<SEvent>): Session",
+      "requires": [],
+      "ensures": [
+        "inv(st) ==> inv(\\result)"
+      ],
+      "decreases": "events.length",
+      "hash": "29906b3221315d81"
+    },
+    {
+      "symbol": "startCompact",
+      "file": "src/session.ts",
+      "signature": "(st: Session, keep: int): StepOut",
+      "requires": [
+        "wellFormed(st.msgs)"
+      ],
+      "ensures": [],
+      "decreases": null,
+      "hash": "62e91ed4c1e8d8ae"
+    },
+    {
+      "symbol": "step",
+      "file": "src/session.ts",
+      "signature": "(st: Session, ev: SEvent): StepOut",
+      "requires": [
+        "inv(st)"
+      ],
+      "ensures": [],
+      "decreases": null,
+      "hash": "5b48c11b2574a95e"
+    },
+    {
+      "symbol": "stepAskCursor",
+      "file": "src/session.ts",
+      "signature": "(st: Session, ev: SEvent, i: int): bool",
+      "requires": [
+        "0 <= i && i < step(st, ev).cmds.length",
+        "inv(st)",
+        "step(st, ev).cmds[i].kind === \"askUser\""
+      ],
+      "ensures": [
+        "step(st, ev).st.phase.calls[step(st, ev).st.phase.done.length] === step(st, ev).cmds[i].call",
+        "step(st, ev).st.phase.done.length < step(st, ev).st.phase.calls.length",
+        "step(st, ev).st.phase.kind === \"awaitingPrompt\""
+      ],
+      "decreases": null,
+      "hash": "4acbe56009120e4a"
+    },
+    {
+      "symbol": "stepBatchProgress",
+      "file": "src/session.ts",
+      "signature": "(st: Session, ev: SEvent): bool",
+      "requires": [
+        "ev.kind === \"promptAnswer\" ==> st.phase.kind === \"awaitingPrompt\"",
+        "ev.kind === \"toolDone\" ==> st.phase.kind === \"toolBatch\"",
+        "ev.kind === \"toolDone\" || ev.kind === \"promptAnswer\" || ev.kind === \"batchInterrupted\"",
+        "inv(st)",
+        "st.phase.kind === \"toolBatch\" || st.phase.kind === \"awaitingPrompt\""
+      ],
+      "ensures": [
+        "(step(st, ev).st.phase.kind === \"toolBatch\" || step(st, ev).st.phase.kind === \"awaitingPrompt\") ==> batchMeasure(step(st, ev).st) < batchMeasure(st)"
+      ],
+      "decreases": null,
+      "hash": "238745cfe8772738"
+    },
+    {
+      "symbol": "stepCommandDiscipline",
+      "file": "src/session.ts",
+      "signature": "(st: Session, ev: SEvent, i: int): bool",
+      "requires": [
+        "0 <= i && i < step(st, ev).cmds.length - 1",
+        "inv(st)"
+      ],
+      "ensures": [
+        "step(st, ev).cmds[i].kind === \"skipTool\""
+      ],
+      "decreases": null,
+      "hash": "b8a315d9a6983569"
+    },
+    {
+      "symbol": "stepConfigStable",
+      "file": "src/session.ts",
+      "signature": "(st: Session, ev: SEvent): bool",
+      "requires": [
+        "inv(st)"
+      ],
+      "ensures": [
+        "st.turns <= step(st, ev).st.turns && step(st, ev).st.turns <= st.turns + 1",
+        "step(st, ev).st.autoCompactAt === st.autoCompactAt",
+        "step(st, ev).st.compactKeep === st.compactKeep",
+        "step(st, ev).st.maxTurns === st.maxTurns"
+      ],
+      "decreases": null,
+      "hash": "924447cfcfb39e0a"
+    },
+    {
+      "symbol": "stepExecCursor",
+      "file": "src/session.ts",
+      "signature": "(st: Session, ev: SEvent, i: int): bool",
+      "requires": [
+        "0 <= i && i < step(st, ev).cmds.length",
+        "inv(st)",
+        "step(st, ev).cmds[i].kind === \"execTool\""
+      ],
+      "ensures": [
+        "step(st, ev).st.phase.calls[step(st, ev).st.phase.done.length] === step(st, ev).cmds[i].call",
+        "step(st, ev).st.phase.done.length < step(st, ev).st.phase.calls.length",
+        "step(st, ev).st.phase.kind === \"toolBatch\""
+      ],
+      "decreases": null,
+      "hash": "ac5d5aa7a328eeb8"
+    },
+    {
+      "symbol": "stepGrantScope",
+      "file": "src/session.ts",
+      "signature": "(st: Session, ev: SEvent): bool",
+      "requires": [
+        "ev.kind === \"promptAnswer\"",
+        "inv(st)"
+      ],
+      "ensures": [
+        "step(st, ev).st.perms === st.perms || (st.phase.kind === \"awaitingPrompt\" && st.phase.done.length < st.phase.calls.length && (step(st, ev).st.perms === grantFor(st.perms, st.cwd, st.phase.calls[st.phase.done.length].req) || step(st, ev).st.perms === grantAll(st.perms, st.cwd, st.phase.calls[st.phase.done.length].req)))"
+      ],
+      "decreases": null,
+      "hash": "4e8dd46e5692b200"
+    },
+    {
+      "symbol": "stepMediation",
+      "file": "src/session.ts",
+      "signature": "(st: Session, ev: SEvent, i: int): bool",
+      "requires": [
+        "0 <= i && i < step(st, ev).cmds.length",
+        "inv(st)",
+        "step(st, ev).cmds[i].kind === \"execTool\""
+      ],
+      "ensures": [
+        "justified(st, step(st, ev).st, ev, step(st, ev).cmds[i].call)"
+      ],
+      "decreases": null,
+      "hash": "2faf402ea1c2badb"
+    },
+    {
+      "symbol": "stepMsgsBounded",
+      "file": "src/session.ts",
+      "signature": "(st: Session, ev: SEvent): bool",
+      "requires": [
+        "inv(st)"
+      ],
+      "ensures": [
+        "ev.kind === \"summaryReady\" ==> step(st, ev).st.msgs.length <= st.msgs.length",
+        "step(st, ev).st.msgs.length <= st.msgs.length + 2"
+      ],
+      "decreases": null,
+      "hash": "1c269c39286c8347"
+    },
+    {
+      "symbol": "stepPermsStable",
+      "file": "src/session.ts",
+      "signature": "(st: Session, ev: SEvent): bool",
+      "requires": [
+        "ev.kind !== \"promptAnswer\"",
+        "inv(st)"
+      ],
+      "ensures": [
+        "step(st, ev).st.perms === st.perms"
+      ],
+      "decreases": null,
+      "hash": "d64dece001029696"
+    },
+    {
+      "symbol": "stepPreservesInv",
+      "file": "src/session.ts",
+      "signature": "(st: Session, ev: SEvent): bool",
+      "requires": [
+        "inv(st)"
+      ],
+      "ensures": [
+        "inv(step(st, ev).st)"
+      ],
+      "decreases": null,
+      "hash": "e280b713350540dd"
+    },
+    {
+      "symbol": "stepPromptNecessary",
+      "file": "src/session.ts",
+      "signature": "(st: Session, ev: SEvent, i: int): bool",
+      "requires": [
+        "0 <= i && i < step(st, ev).cmds.length",
+        "inv(st)",
+        "step(st, ev).cmds[i].kind === \"askUser\""
+      ],
+      "ensures": [
+        "!isAllowed(step(st, ev).st.perms, step(st, ev).st.cwd, step(st, ev).cmds[i].call.req)",
+        "!step(st, ev).cmds[i].call.noPerm"
+      ],
+      "decreases": null,
+      "hash": "cbf696455759d2ac"
+    },
+    {
+      "symbol": "stepProviderCallSafe",
+      "file": "src/session.ts",
+      "signature": "(st: Session, ev: SEvent, i: int): bool",
+      "requires": [
+        "0 <= i && i < step(st, ev).cmds.length",
+        "inv(st)",
+        "step(st, ev).cmds[i].kind === \"callProvider\""
+      ],
+      "ensures": [
+        "st.maxTurns > 0 ==> step(st, ev).st.turns <= st.maxTurns",
+        "step(st, ev).st.phase.kind === \"awaitingProvider\"",
+        "wellFormed(step(st, ev).st.msgs)"
+      ],
+      "decreases": null,
+      "hash": "8910e014238d3414"
+    },
+    {
+      "symbol": "stepRejectNeverAsks",
+      "file": "src/session.ts",
+      "signature": "(st: Session, ev: SEvent, i: int): bool",
+      "requires": [
+        "0 <= i && i < step(st, ev).cmds.length",
+        "inv(st)",
+        "st.perms.rejectPrompts"
+      ],
+      "ensures": [
+        "step(st, ev).cmds[i].kind !== \"askUser\""
+      ],
+      "decreases": null,
+      "hash": "7f2b2c33e21ded37"
+    },
+    {
+      "symbol": "stepSummarizeSafe",
+      "file": "src/session.ts",
+      "signature": "(st: Session, ev: SEvent, i: int): bool",
+      "requires": [
+        "0 <= i && i < step(st, ev).cmds.length",
+        "inv(st)",
+        "step(st, ev).cmds[i].kind === \"summarize\""
+      ],
+      "ensures": [
+        "0 < step(st, ev).cmds[i].cut && step(st, ev).cmds[i].cut <= step(st, ev).st.msgs.length",
+        "step(st, ev).cmds[i].cut === step(st, ev).st.msgs.length || headOk(step(st, ev).st.msgs[step(st, ev).cmds[i].cut])",
+        "step(st, ev).st.phase.cut === step(st, ev).cmds[i].cut",
+        "step(st, ev).st.phase.kind === \"awaitingSummary\""
+      ],
+      "decreases": null,
+      "hash": "0bbc91e7580817af"
+    },
+    {
+      "symbol": "stepTotal",
+      "file": "src/session.ts",
+      "signature": "(st: Session, ev: SEvent): StepOut",
+      "requires": [],
+      "ensures": [
+        "inv(st) ==> inv(\\result.st)"
+      ],
+      "decreases": null,
+      "hash": "19e5bfd8b8474664"
+    },
+    {
+      "symbol": "toTCall",
+      "file": "src/session.ts",
+      "signature": "(c: SCall): TToolCall",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "785f1aa6c17b2fbc"
+    },
+    {
+      "symbol": "traceFromInitialSafe",
+      "file": "src/session.ts",
+      "signature": "(perms: PermState, cwd: seq<string>, maxTurns: int, compactKeep: int, autoCompactAt: int, events: seq<SEvent>): bool",
+      "requires": [],
+      "ensures": [
+        "inv(runSession(initialSession(perms, cwd, maxTurns, compactKeep, autoCompactAt), events))"
+      ],
+      "decreases": null,
+      "hash": "e57851584b92fbfa"
+    },
+    {
+      "symbol": "verdictFor",
+      "file": "src/session.ts",
+      "signature": "(st: Session, c: SCall): Verdict",
+      "requires": [],
+      "ensures": [
+        "\\result === \"exec\" ==> (c.noPerm || isAllowed(st.perms, st.cwd, c.req))",
+        "\\result === \"prompt\" ==> (!c.noPerm && !isAllowed(st.perms, st.cwd, c.req))",
+        "st.perms.rejectPrompts ==> \\result !== \"prompt\""
+      ],
+      "decreases": null,
+      "hash": "c93456087f7d5f47"
+    },
+    {
+      "symbol": "wellFormedModel",
+      "file": "src/session.ts",
+      "signature": "(msgs: seq<TMsg>): bool",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "9262896b1916247f"
+    },
+    {
+      "symbol": "appendAnsweredBlock",
+      "file": "src/transcript.ts",
+      "signature": "(msgs: seq<TMsg>, calls: seq<TToolCall>, results: seq<TToolResult>): seq<TMsg>",
+      "requires": [
+        "calls.length > 0",
+        "pairs(calls, results)",
+        "wellFormed(msgs)"
+      ],
+      "ensures": [
+        "\\result.length === msgs.length + 2",
+        "wellFormed(\\result)"
+      ],
+      "decreases": null,
+      "hash": "d7e099d72eed304a"
+    },
+    {
+      "symbol": "appendAssistantDone",
+      "file": "src/transcript.ts",
+      "signature": "(msgs: seq<TMsg>): seq<TMsg>",
+      "requires": [
+        "wellFormed(msgs)"
+      ],
+      "ensures": [
+        "\\result.length === msgs.length + 1",
+        "wellFormed(\\result)"
+      ],
+      "decreases": null,
+      "hash": "fb87c216fa2d68ae"
+    },
+    {
+      "symbol": "appendPair",
+      "file": "src/transcript.ts",
+      "signature": "(msgs: seq<TMsg>, a: TMsg, t: TMsg): seq<TMsg>",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "4b141498ca7e69f5"
+    },
+    {
+      "symbol": "appendPreservesWellFormed",
+      "file": "src/transcript.ts",
+      "signature": "(msgs: seq<TMsg>, calls: seq<TToolCall>): bool",
+      "requires": [
+        "calls.length > 0",
+        "wellFormed(msgs)"
+      ],
+      "ensures": [
+        "wellFormed(appendToolBlock(msgs, calls))"
+      ],
+      "decreases": null,
+      "hash": "6f194cc1d27798b0"
+    },
+    {
+      "symbol": "appendToolBlock",
+      "file": "src/transcript.ts",
+      "signature": "(msgs: seq<TMsg>, calls: seq<TToolCall>): seq<TMsg>",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "f5ff53d910c4582e"
+    },
+    {
+      "symbol": "appendUserMsg",
+      "file": "src/transcript.ts",
+      "signature": "(msgs: seq<TMsg>): seq<TMsg>",
+      "requires": [
+        "wellFormed(msgs)"
+      ],
+      "ensures": [
+        "\\result.length === msgs.length + 1",
+        "wellFormed(\\result)"
+      ],
+      "decreases": null,
+      "hash": "fb87c216fa2d68ae"
+    },
+    {
+      "symbol": "compact",
+      "file": "src/transcript.ts",
+      "signature": "(msgs: seq<TMsg>, c: int): seq<TMsg>",
+      "requires": [
+        "0 <= c && c <= msgs.length"
+      ],
+      "ensures": [
+        "(wellFormed(msgs) && (c === msgs.length || headOk(msgs[c]))) ==> wellFormed(\\result)",
+        "\\result.length === msgs.length - c + 1"
+      ],
+      "decreases": null,
+      "hash": "f4cb2ffb7bfd7211"
+    },
+    {
+      "symbol": "compactConverges",
+      "file": "src/transcript.ts",
+      "signature": "(msgs: seq<TMsg>, keepRecent: int): bool",
+      "requires": [
+        "0 <= keepRecent",
+        "msgs.length <= keepRecent",
+        "wellFormed(msgs)"
+      ],
+      "ensures": [
+        "findCut(msgs, keepRecent) === 0"
+      ],
+      "decreases": null,
+      "hash": "b5bc971118c1ed38"
+    },
+    {
+      "symbol": "compactNonGrowing",
+      "file": "src/transcript.ts",
+      "signature": "(msgs: seq<TMsg>, c: int): bool",
+      "requires": [
+        "1 <= c && c <= msgs.length"
+      ],
+      "ensures": [
+        "compact(msgs, c).length <= msgs.length"
+      ],
+      "decreases": null,
+      "hash": "15ae30b88ea98f2b"
+    },
+    {
+      "symbol": "compactPreservesWellFormed",
+      "file": "src/transcript.ts",
+      "signature": "(msgs: seq<TMsg>, c: int): bool",
+      "requires": [
+        "0 <= c && c <= msgs.length",
+        "c === msgs.length || headOk(msgs[c])",
+        "wellFormed(msgs)"
+      ],
+      "ensures": [
+        "wellFormed(compact(msgs, c))"
+      ],
+      "decreases": null,
+      "hash": "3b83688bcf16dbdc"
+    },
+    {
+      "symbol": "compactShrinks",
+      "file": "src/transcript.ts",
+      "signature": "(msgs: seq<TMsg>, c: int): bool",
+      "requires": [
+        "2 <= c && c <= msgs.length"
+      ],
+      "ensures": [
+        "compact(msgs, c).length < msgs.length"
+      ],
+      "decreases": null,
+      "hash": "c583757292e30e05"
+    },
+    {
+      "symbol": "fillRest",
+      "file": "src/transcript.ts",
+      "signature": "(calls: seq<TToolCall>, done: seq<TToolResult>): seq<TToolResult>",
+      "requires": [
+        "done.length <= calls.length"
+      ],
+      "ensures": [
+        "pairsTo(calls, done) ==> pairs(calls, \\result)"
+      ],
+      "decreases": "calls.length - done.length",
+      "hash": "79dd017db31ad7cf"
+    },
+    {
+      "symbol": "findCut",
+      "file": "src/transcript.ts",
+      "signature": "(msgs: seq<TMsg>, keepRecent: int): int",
+      "requires": [
+        "0 <= keepRecent"
+      ],
+      "ensures": [
+        "0 <= \\result && \\result <= msgs.length",
+        "\\result === msgs.length || headOk(msgs[\\result])"
+      ],
+      "decreases": null,
+      "hash": "4f7341796a900f21"
+    },
+    {
+      "symbol": "initialMsgs",
+      "file": "src/transcript.ts",
+      "signature": "(): seq<TMsg>",
+      "requires": [],
+      "ensures": [
+        "\\result.length === 0",
+        "wellFormed(\\result)"
+      ],
+      "decreases": null,
+      "hash": "22a0c7a7004b3aa6"
+    },
+    {
+      "symbol": "makeResults",
+      "file": "src/transcript.ts",
+      "signature": "(calls: seq<TToolCall>): seq<TToolResult>",
+      "requires": [],
+      "ensures": [
+        "\\result.length === calls.length",
+        "pairs(calls, \\result)"
+      ],
+      "decreases": "calls.length",
+      "hash": "887854dab89a3371"
+    },
+    {
+      "symbol": "pairsTo",
+      "file": "src/transcript.ts",
+      "signature": "(calls: seq<TToolCall>, results: seq<TToolResult>): bool",
+      "requires": [],
+      "ensures": [],
+      "decreases": "calls.length",
+      "hash": "7c486db09351be49"
+    },
+    {
+      "symbol": "pairsToComplete",
+      "file": "src/transcript.ts",
+      "signature": "(calls: seq<TToolCall>, results: seq<TToolResult>): bool",
+      "requires": [
+        "pairsTo(calls, results)",
+        "results.length === calls.length"
+      ],
+      "ensures": [
+        "pairs(calls, results)"
+      ],
+      "decreases": null,
+      "hash": "1848b87a965a6a28"
+    },
+    {
+      "symbol": "pushResult",
+      "file": "src/transcript.ts",
+      "signature": "(calls: seq<TToolCall>, done: seq<TToolResult>, isError: bool): seq<TToolResult>",
+      "requires": [
+        "done.length < calls.length",
+        "pairsTo(calls, done)"
+      ],
+      "ensures": [
+        "\\result.length === calls.length ==> pairs(calls, \\result)",
+        "\\result.length === done.length + 1",
+        "pairsTo(calls, \\result)"
+      ],
+      "decreases": null,
+      "hash": "bae079a2726e3719"
+    },
+    {
+      "symbol": "snapBack",
+      "file": "src/transcript.ts",
+      "signature": "(msgs: seq<TMsg>, c: int): int",
+      "requires": [
+        "0 <= c && c <= msgs.length"
+      ],
+      "ensures": [
+        "0 <= \\result && \\result <= msgs.length",
+        "\\result === msgs.length || headOk(msgs[\\result])"
+      ],
+      "decreases": "c",
+      "hash": "b0e6f79929062943"
+    },
+    {
+      "symbol": "startResults",
+      "file": "src/transcript.ts",
+      "signature": "(calls: seq<TToolCall>): seq<TToolResult>",
+      "requires": [],
+      "ensures": [
+        "\\result.length === 0",
+        "pairsTo(calls, \\result)"
+      ],
+      "decreases": null,
+      "hash": "627b66b8a39bab0e"
+    },
+    {
+      "symbol": "wfFromAppendPair",
+      "file": "src/transcript.ts",
+      "signature": "(msgs: seq<TMsg>, a: TMsg, t: TMsg): bool",
+      "requires": [
+        "lastOk(t)",
+        "msgs.length > 0",
+        "okAdjacent(a, t)",
+        "okAdjacent(msgs[msgs.length - 1], a)",
+        "wfFrom(msgs)"
+      ],
+      "ensures": [
+        "wfFrom(appendPair(msgs, a, t))"
+      ],
+      "decreases": "msgs.length",
+      "hash": "d21280c2d2868afa"
+    },
+    {
+      "symbol": "wfFromImpliesLastOk",
+      "file": "src/transcript.ts",
+      "signature": "(msgs: seq<TMsg>): bool",
+      "requires": [
+        "msgs.length > 0",
+        "wfFrom(msgs)"
+      ],
+      "ensures": [
+        "lastOk(msgs[msgs.length - 1])"
+      ],
+      "decreases": "msgs.length",
+      "hash": "3c37892ce824cbec"
+    },
+    {
+      "symbol": "wfFromSuffix",
+      "file": "src/transcript.ts",
+      "signature": "(msgs: seq<TMsg>, c: int): bool",
+      "requires": [
+        "0 <= c && c <= msgs.length",
+        "wfFrom(msgs)"
+      ],
+      "ensures": [
+        "wfFrom(msgs.slice(c))"
+      ],
+      "decreases": "c",
+      "hash": "d692f94c8b8c2db1"
+    }
+  ]
+}

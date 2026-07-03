@@ -7,6 +7,7 @@ import { resolve } from "node:path";
 import { DEFAULT_PROVIDER, getProviderConfig } from "./config.ts";
 import { PROVIDERS, createProvider } from "./providers/index.ts";
 import { runAgent } from "./agent.ts";
+import { loadSelfHooks, reflectionProtocol } from "./reflect.ts";
 import type { Hook } from "./hooks.ts";
 
 const HELP = `henri-lemmascript — a hackable agent CLI with a LemmaScript-verified core.
@@ -26,6 +27,8 @@ Options:
                              (default: 150000; use --no-auto-compact to disable)
       --no-auto-compact  Disable automatic compaction (manual /compact only)
       --hook <path>      Load a hook module (.ts/.js exporting a Hook); repeatable
+      --self             Reflection mode: add the self-improvement protocol to the
+                         system prompt (see SELF.md; adopted self/hooks/* always load)
   -h, --help             Show this help
 
 In-session commands: /compact [n] (summarize old history, keep n recent),
@@ -55,6 +58,7 @@ async function main(): Promise<void> {
       "auto-compact-at": { type: "string" },
       "no-auto-compact": { type: "boolean" },
       hook: { type: "string", multiple: true },
+      self: { type: "boolean" },
       help: { type: "boolean", short: "h" },
     },
   });
@@ -84,8 +88,11 @@ async function main(): Promise<void> {
     process.exit(2);
   }
 
-  const hooks: Hook[] = [];
+  // Adopted self-improvements load first; they enter through the verified
+  // merge, so they can add tools but never shadow a default (hooks H2).
+  const hooks: Hook[] = await loadSelfHooks();
   for (const path of values.hook ?? []) hooks.push(await loadHook(path));
+  if (values.self) hooks.push(reflectionProtocol());
 
   const provider = createProvider(config.provider, config.model, config.region, config.host);
 

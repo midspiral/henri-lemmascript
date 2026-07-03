@@ -11,13 +11,16 @@
   },
   "scripts": {
     "henri": "tsx src/cli.ts",
-    "test": "tsx test/smoke.ts && tsx test/session-smoke.ts && tsx test/permission-escape.ts",
+    "test": "tsx test/smoke.ts && tsx test/session-smoke.ts && tsx test/permission-escape.ts && tsx test/self-smoke.ts",
     "test:gve": "tsx test/gve.ts && tsx test/gve-plan.ts && tsx test/gve-demo.ts && tsx test/gve-smoke.ts",
     "typecheck": "tsc --noEmit",
     "gen": "node ../LemmaScript/tools/dist/lsc.js gen --backend=dafny",
     "regen": "node ../LemmaScript/tools/dist/lsc.js regen --backend=dafny",
     "check": "node ../LemmaScript/tools/dist/lsc.js check --backend=dafny",
-    "verify": "../LemmaScript/tools/check.sh dafny"
+    "verify": "../LemmaScript/tools/check.sh dafny",
+    "seal": "LEMMASCRIPT=../LemmaScript npx tsx ../lemmascript-seal/src/cli.ts seal",
+    "seal:check": "LEMMASCRIPT=../LemmaScript npx tsx ../lemmascript-seal/src/cli.ts check",
+    "gate": "scripts/gate.sh"
   },
   "license": "MIT",
   "devDependencies": {
