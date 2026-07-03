@@ -4,3 +4,4 @@ src/hooks.ts
 src/edit.ts
 src/gve/exec_core.ts
 src/session.ts
+self/core/complexity.ts

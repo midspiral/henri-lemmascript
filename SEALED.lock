@@ -3,6 +3,89 @@
   "sealedAt": "(set on first real commit)",
   "sealed": [
     {
+      "symbol": "complexityMinimum",
+      "file": "self/core/complexity.ts",
+      "signature": "(lines: seq<string>): bool",
+      "requires": [],
+      "ensures": [
+        "estimateComplexity(lines) >= 1"
+      ],
+      "decreases": null,
+      "hash": "87c567a811c5c960"
+    },
+    {
+      "symbol": "countBranches",
+      "file": "self/core/complexity.ts",
+      "signature": "(line: string): int",
+      "requires": [],
+      "ensures": [
+        "\\result >= 0"
+      ],
+      "decreases": null,
+      "hash": "4d78f470effcaf4b"
+    },
+    {
+      "symbol": "countNonBlank",
+      "file": "self/core/complexity.ts",
+      "signature": "(lines: seq<string>): int",
+      "requires": [],
+      "ensures": [
+        "\\result <= lines.length",
+        "\\result >= 0"
+      ],
+      "decreases": "lines.length",
+      "hash": "fafa2c26e440dc88"
+    },
+    {
+      "symbol": "countPattern",
+      "file": "self/core/complexity.ts",
+      "signature": "(lines: seq<string>, pattern: string): int",
+      "requires": [
+        "pattern.length > 0"
+      ],
+      "ensures": [
+        "\\result >= 0"
+      ],
+      "decreases": "lines.length",
+      "hash": "524d09a8b6033fe4"
+    },
+    {
+      "symbol": "estimateComplexity",
+      "file": "self/core/complexity.ts",
+      "signature": "(lines: seq<string>): int",
+      "requires": [],
+      "ensures": [
+        "\\result >= 1"
+      ],
+      "decreases": "lines.length",
+      "hash": "ca6cd070f167d5a4"
+    },
+    {
+      "symbol": "nonBlankBounds",
+      "file": "self/core/complexity.ts",
+      "signature": "(lines: seq<string>): bool",
+      "requires": [],
+      "ensures": [
+        "countNonBlank(lines) <= lines.length",
+        "countNonBlank(lines) >= 0"
+      ],
+      "decreases": null,
+      "hash": "06aaa4f55c2753ae"
+    },
+    {
+      "symbol": "patternNonNegative",
+      "file": "self/core/complexity.ts",
+      "signature": "(lines: seq<string>, pattern: string): bool",
+      "requires": [
+        "pattern.length > 0"
+      ],
+      "ensures": [
+        "countPattern(lines, pattern) >= 0"
+      ],
+      "decreases": null,
+      "hash": "691ddcc3eceb6532"
+    },
+    {
       "symbol": "editFile",
       "file": "src/edit.ts",
       "signature": "(content: seq<string>, old: seq<string>, all: bool): Edit",
