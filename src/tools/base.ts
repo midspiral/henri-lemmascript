@@ -14,6 +14,10 @@ import { editFile, replaceFirst } from "../edit.ts";
 const execAsync = promisify(exec);
 const execFileAsync = promisify(execFile);
 
+// Long-running commands (e.g. the reflection gate's full Dafny run) need more
+// than the default 2 minutes: set HENRI_BASH_TIMEOUT_MS.
+const BASH_TIMEOUT_MS = Number(process.env["HENRI_BASH_TIMEOUT_MS"] ?? 120_000);
+
 export interface Tool {
   name: string;
   description: string;
@@ -45,14 +49,14 @@ export const bashTool: Tool = {
   async execute(args, signal) {
     const command = str(args, "command");
     try {
-      const { stdout, stderr } = await execAsync(command, { timeout: 120_000, maxBuffer: 10 * 1024 * 1024, signal });
+      const { stdout, stderr } = await execAsync(command, { timeout: BASH_TIMEOUT_MS, maxBuffer: 10 * 1024 * 1024, signal });
       let output = stdout;
       if (stderr) output += `\n[stderr]\n${stderr}`;
       return output || "(no output)";
     } catch (e: unknown) {
       const err = e as { stdout?: string; stderr?: string; code?: number; killed?: boolean; message?: string };
       if (signal?.aborted) return "[interrupted by user]";
-      if (err.killed) return "[error: command timed out after 120 seconds]";
+      if (err.killed) return `[error: command timed out after ${Math.round(BASH_TIMEOUT_MS / 1000)} seconds]`;
       let output = err.stdout ?? "";
       if (err.stderr) output += `\n[stderr]\n${err.stderr}`;
       if (err.code !== undefined) output += `\n[exit code: ${err.code}]`;
