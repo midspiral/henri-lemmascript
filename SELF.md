@@ -15,7 +15,7 @@ can do.
 A Dafny prover happily verifies a *weakened* spec: nothing stops an edit that
 relaxes an `ensures`, deletes a postcondition, or drops a verified function —
 exactly the edits a self-improving agent optimizing for "make verification
-pass" would find. [`lemmascript-seal`](../lemmascript-seal) supplies the
+pass" would find. [`lemmascript-seal`](https://github.com/midspiral/lemmascript-seal) supplies the
 missing monotonicity rule: across self-edits, a guarantee may be **added**,
 never changed or removed. `SEALED.lock` is the agent's accumulated, append-only
 ledger of guarantees — it only grows, generation after generation.
