@@ -2,7 +2,7 @@ name: LemmaScript
 
 on:
   push:
-    branches: [main, generate-verify-execute, session]
+    branches: [main, generate-verify-execute, session, self-improvement]
   pull_request:
 
 jobs:
@@ -33,3 +33,27 @@ jobs:
       - run: npm run typecheck
       - run: npm test
       - run: npm run test:gve
+
+  # The guarantee ledger (SELF.md): no sealed contract may change or disappear,
+  # and nothing verified may remain unfrozen. `lsc info` is AST extraction only,
+  # so this job needs the toolchain checkouts but not Dafny — it stays fast.
+  seal:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Clone LemmaScript (sibling — lsc frontend)
+        run: git clone https://github.com/midspiral/LemmaScript.git ../LemmaScript
+
+      - name: Clone lemmascript-seal (sibling — guarantee ledger)
+        run: git clone https://github.com/midspiral/lemmascript-seal.git ../lemmascript-seal
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+
+      - run: npm ci
+      - run: npm ci --prefix ../LemmaScript/tools
+
+      - name: Seal check (strict)
+        run: LEMMASCRIPT=../LemmaScript npx tsx ../lemmascript-seal/src/cli.ts check --strict
