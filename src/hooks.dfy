@@ -6,15 +6,6 @@ datatype Tool = Tool(name: string)
 
 datatype Hook = Hook(tools: Option<seq<Tool>>, removeTools: Option<seq<string>>, pathBased: Option<seq<string>>, autoAllowCwd: Option<seq<string>>, autoAllow: Option<seq<string>>, rejectPrompts: Option<bool>, systemPrompt: Option<string>)
 
-function contains(xs: seq<string>, x: string): bool
-  decreases |xs|
-{
-  if (|xs| == 0) then
-    false
-  else
-    ((xs[0] == x) || contains(xs[1..], x))
-}
-
 function hasName(tools: seq<Tool>, name: string): bool
   decreases |tools|
 {
@@ -348,4 +339,28 @@ lemma DedupToolsCovers(acc: seq<Tool>, tools: seq<Tool>, removes: seq<string>, n
     assert hasName(tools[1..], name);
     DedupToolsCovers(acc + [t0], tools[1..], removes, name);
   }
+}
+
+function contains(xs: seq<string>, x: string): bool
+  decreases |xs|
+{
+  if (|xs| == 0) then
+    false
+  else
+    ((xs[0] == x) || contains(xs[1..], x))
+}
+by method {
+  var p := 0;
+  while (p < |xs|)
+    invariant (0 <= p)
+    invariant (p <= |xs|)
+    invariant (contains(xs, x) == contains(xs[p..], x))
+    decreases (|xs| - p)
+  {
+    if (xs[p] == x) {
+      return true;
+    }
+    p := (p + 1);
+  }
+  return false;
 }
