@@ -2,57 +2,6 @@
 
 datatype Edit = NotFound | Ambiguous | Replaced
 
-function matchesAt(hay: seq<string>, old_: seq<string>): bool
-  decreases |old_|
-{
-  ((|old_| == 0) || (if (|hay| == 0) then false else (if (hay[0] != old_[0]) then false else matchesAt(hay[1..], old_[1..]))))
-}
-
-function dropMatch(hay: seq<string>, old_: seq<string>): seq<string>
-  decreases |old_|
-{
-  if (|old_| == 0) then
-    hay
-  else
-    if (|hay| == 0) then
-      hay
-    else
-      dropMatch(hay[1..], old_[1..])
-}
-
-function occurs(hay: seq<string>, old_: seq<string>): bool
-  decreases |hay|
-{
-  if (|hay| == 0) then
-    false
-  else
-    (matchesAt(hay, old_) || occurs(hay[1..], old_))
-}
-
-function afterFirst(hay: seq<string>, old_: seq<string>): seq<string>
-  decreases |hay|
-{
-  if (|hay| == 0) then
-    []
-  else
-    if matchesAt(hay, old_) then
-      dropMatch(hay, old_)
-    else
-      afterFirst(hay[1..], old_)
-}
-
-function replaceFirst(hay: seq<string>, old_: seq<string>, repl: seq<string>): seq<string>
-  decreases |hay|
-{
-  if (|hay| == 0) then
-    hay
-  else
-    if matchesAt(hay, old_) then
-      (repl + dropMatch(hay, old_))
-    else
-      ([hay[0]] + replaceFirst(hay[1..], old_, repl))
-}
-
 function manyOcc(hay: seq<string>, old_: seq<string>): bool
 {
   (occurs(hay, old_) && occurs(afterFirst(hay, old_), old_))
@@ -78,17 +27,12 @@ lemma editFile_ensures(content: seq<string>, old_: seq<string>, all: bool)
 {
 }
 
-// ── Splice faithfulness, surfaced as theorems ────────────────────────────────
-// Each property's STATEMENT lives in edit.ts (//@ ensures on a pure carrier);
-// the inductive PROOF is the generated `_ensures` lemma body, filled below.
-
 function noMatchIdentity(hay: seq<string>, old_: seq<string>, repl: seq<string>): bool
   requires !(occurs(hay, old_))
 {
   true
 }
 
-// E2 — replacing text that does not occur leaves the content unchanged.
 lemma noMatchIdentity_ensures(hay: seq<string>, old_: seq<string>, repl: seq<string>)
   requires !(occurs(hay, old_))
   ensures (replaceFirst(hay, old_, repl) == hay)
@@ -106,8 +50,6 @@ function spliceNoop(hay: seq<string>, old_: seq<string>): bool
   true
 }
 
-// E3 — replacing `old` with `old` is a no-op: the splice touches exactly the
-// matched span and preserves everything else.
 lemma spliceNoop_ensures(hay: seq<string>, old_: seq<string>)
   ensures (replaceFirst(hay, old_, old_) == hay)
   decreases |hay|
@@ -128,7 +70,6 @@ function spliceLength(hay: seq<string>, old_: seq<string>, repl: seq<string>): b
   true
 }
 
-// E4 — a single splice changes the length by exactly |repl| - |old|.
 lemma spliceLength_ensures(hay: seq<string>, old_: seq<string>, repl: seq<string>)
   requires occurs(hay, old_)
   ensures (|replaceFirst(hay, old_, repl)| == ((|hay| - |old_|) + |repl|))
@@ -142,6 +83,169 @@ lemma spliceLength_ensures(hay: seq<string>, old_: seq<string>, repl: seq<string
     spliceLength_ensures(hay[1..], old_, repl);
     assert hay == [hay[0]] + hay[1..];
   }
+}
+
+function matchesFrom(hay: seq<string>, old_: seq<string>, p: nat): bool
+  requires (0 <= p)
+  requires (p <= |hay|)
+{
+  matchesAt(hay[p..], old_)
+}
+by method {
+  if (|old_| > (|hay| - p)) {
+    MatchesAtLen(hay[p..], old_);
+    return false;
+  }
+  var j := 0;
+  while (j < |old_|)
+    invariant (0 <= j)
+    invariant (j <= |old_|)
+    invariant ((p + |old_|) <= |hay|)
+    invariant (matchesAt(hay[p..], old_) == matchesAt(hay[(p + j)..], old_[j..]))
+    decreases (|old_| - j)
+  {
+    if (hay[(p + j)] != old_[j]) {
+      return false;
+    }
+    j := (j + 1);
+  }
+  return true;
+}
+
+function matchesAt(hay: seq<string>, old_: seq<string>): bool
+  decreases |old_|
+{
+  ((|old_| == 0) || (if (|hay| == 0) then false else (if (hay[0] != old_[0]) then false else matchesAt(hay[1..], old_[1..]))))
+}
+by method {
+  if (|old_| > |hay|) {
+    MatchesAtLen(hay, old_);
+    return false;
+  }
+  var j := 0;
+  while (j < |old_|)
+    invariant (0 <= j)
+    invariant (j <= |old_|)
+    invariant (|old_| <= |hay|)
+    invariant (matchesAt(hay, old_) == matchesAt(hay[j..], old_[j..]))
+    decreases (|old_| - j)
+  {
+    if (hay[j] != old_[j]) {
+      return false;
+    }
+    j := (j + 1);
+  }
+  return true;
+}
+
+function dropMatch(hay: seq<string>, old_: seq<string>): seq<string>
+  decreases |old_|
+{
+  if (|old_| == 0) then
+    hay
+  else
+    if (|hay| == 0) then
+      hay
+    else
+      dropMatch(hay[1..], old_[1..])
+}
+by method {
+  var k := 0;
+  while ((k < |old_|) && (k < |hay|))
+    invariant (0 <= k)
+    invariant (k <= |old_|)
+    invariant (k <= |hay|)
+    invariant (dropMatch(hay, old_) == dropMatch(hay[k..], old_[k..]))
+    decreases (|old_| - k)
+  {
+    k := (k + 1);
+  }
+  return hay[k..];
+}
+
+function occurs(hay: seq<string>, old_: seq<string>): bool
+  decreases |hay|
+{
+  if (|hay| == 0) then
+    false
+  else
+    (matchesAt(hay, old_) || occurs(hay[1..], old_))
+}
+by method {
+  var p := 0;
+  while (p < |hay|)
+    invariant (0 <= p)
+    invariant (p <= |hay|)
+    invariant (occurs(hay, old_) == occurs(hay[p..], old_))
+    decreases (|hay| - p)
+  {
+    var i_t0 := matchesFrom(hay, old_, p);
+    if i_t0 {
+      return true;
+    }
+    p := (p + 1);
+  }
+  return false;
+}
+
+function afterFirst(hay: seq<string>, old_: seq<string>): seq<string>
+  decreases |hay|
+{
+  if (|hay| == 0) then
+    []
+  else
+    if matchesAt(hay, old_) then
+      dropMatch(hay, old_)
+    else
+      afterFirst(hay[1..], old_)
+}
+by method {
+  var p := 0;
+  while (p < |hay|)
+    invariant (0 <= p)
+    invariant (p <= |hay|)
+    invariant (afterFirst(hay, old_) == afterFirst(hay[p..], old_))
+    decreases (|hay| - p)
+  {
+    var i_t1 := matchesFrom(hay, old_, p);
+    if i_t1 {
+      var i_t2 := dropMatch(hay[p..], old_);
+      return i_t2;
+    }
+    p := (p + 1);
+  }
+  return [];
+}
+
+function replaceFirst(hay: seq<string>, old_: seq<string>, repl: seq<string>): seq<string>
+  decreases |hay|
+{
+  if (|hay| == 0) then
+    hay
+  else
+    if matchesAt(hay, old_) then
+      (repl + dropMatch(hay, old_))
+    else
+      ([hay[0]] + replaceFirst(hay[1..], old_, repl))
+}
+by method {
+  var p := 0;
+  while (p < |hay|)
+    invariant (0 <= p)
+    invariant (p <= |hay|)
+    invariant forall q: int :: ((0 <= q) ==> (q < p) ==> !(matchesAt(hay[q..], old_)))
+    decreases (|hay| - p)
+  {
+    var i_t3 := matchesFrom(hay, old_, p);
+    if i_t3 {
+      var i_t4 := dropMatch(hay[p..], old_);
+      ReplaceFirstAt(hay, old_, repl, p);
+      return ((hay[0..p] + repl) + i_t4);
+    }
+    p := (p + 1);
+  }
+  ReplaceFirstNone(hay, old_, repl);
+  return hay;
 }
 
 // ── Helper lemmas (proof plumbing; not headline properties) ───────────────────
@@ -165,4 +269,51 @@ lemma DropMatchLen(hay: seq<string>, old_: seq<string>)
   ensures |dropMatch(hay, old_)| == |hay| - |old_|
 {
   MatchSplit(hay, old_);
+}
+
+// A match cannot be longer than the text it matches in.
+lemma MatchesAtLen(hay: seq<string>, old_: seq<string>)
+  ensures matchesAt(hay, old_) ==> |old_| <= |hay|
+  decreases |old_|
+{
+  if |old_| > 0 && |hay| > 0 && hay[0] == old_[0] {
+    MatchesAtLen(hay[1..], old_[1..]);
+  }
+}
+
+// If the first match is at position p, replaceFirst splices exactly there.
+lemma ReplaceFirstAt(hay: seq<string>, old_: seq<string>, repl: seq<string>, p: nat)
+  requires p < |hay|
+  requires forall q :: 0 <= q < p ==> !matchesAt(hay[q..], old_)
+  requires matchesAt(hay[p..], old_)
+  ensures replaceFirst(hay, old_, repl) == hay[..p] + repl + dropMatch(hay[p..], old_)
+  decreases p
+{
+  if p == 0 {
+    assert hay[0..] == hay;
+    assert hay[..0] == [];
+  } else {
+    assert hay[0..] == hay;
+    assert !matchesAt(hay, old_);
+    assert forall q :: 0 <= q < p - 1 ==> hay[1..][q..] == hay[(q + 1)..];
+    assert hay[1..][(p - 1)..] == hay[p..];
+    ReplaceFirstAt(hay[1..], old_, repl, p - 1);
+    assert hay[1..][..(p - 1)] == hay[1..p];
+    assert [hay[0]] + hay[1..p] == hay[..p];
+  }
+}
+
+// No match anywhere means replaceFirst is the identity.
+lemma ReplaceFirstNone(hay: seq<string>, old_: seq<string>, repl: seq<string>)
+  requires forall q :: 0 <= q < |hay| ==> !matchesAt(hay[q..], old_)
+  ensures replaceFirst(hay, old_, repl) == hay
+  decreases |hay|
+{
+  if |hay| > 0 {
+    assert hay[0..] == hay;
+    assert !matchesAt(hay, old_);
+    assert forall q :: 0 <= q < |hay| - 1 ==> hay[1..][q..] == hay[(q + 1)..];
+    ReplaceFirstNone(hay[1..], old_, repl);
+    assert hay == [hay[0]] + hay[1..];
+  }
 }

@@ -45,12 +45,19 @@ export interface PermConfig {
 // ── tool merge (verified, over the real Tool[]) ───────────────────────────────
 
 /** Recursive string-list membership. */
+//@ pure
+//@ verify
 export function contains(xs: string[], x: string): boolean {
-  //@ verify
-  //@ decreases xs.length
-  if (xs.length === 0) return false;
-  if (xs[0] === x) return true;
-  return contains(xs.slice(1), x);
+  //@ type p nat
+  let p = 0;
+  while (p < xs.length) {
+    //@ invariant 0 <= p && p <= xs.length
+    //@ invariant contains(xs, x) === contains(xs.slice(p), x)
+    //@ decreases xs.length - p
+    if (xs[p] === x) return true;
+    p = p + 1;
+  }
+  return false;
 }
 
 /** Does any tool in `tools` carry this name? */
