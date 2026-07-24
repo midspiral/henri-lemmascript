@@ -171,6 +171,7 @@ lemma gatherCommutes_ensures(base: seq<string>, p: seq<string>, q: seq<string>, 
 }
 
 function contains(xs: seq<string>, x: string): bool
+  decreases |xs|
 {
 }
 by method {
