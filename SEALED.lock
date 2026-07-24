@@ -86,6 +86,24 @@
       "hash": "691ddcc3eceb6532"
     },
     {
+      "symbol": "afterFirst",
+      "file": "src/edit.ts",
+      "signature": "(hay: seq<string>, old: seq<string>): seq<string>",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "e84a33861fbc5e06"
+    },
+    {
+      "symbol": "dropMatch",
+      "file": "src/edit.ts",
+      "signature": "(hay: seq<string>, old: seq<string>): seq<string>",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "e84a33861fbc5e06"
+    },
+    {
       "symbol": "editFile",
       "file": "src/edit.ts",
       "signature": "(content: seq<string>, old: seq<string>, all: bool): Edit",
@@ -101,6 +119,35 @@
       "hash": "ff1aad176c894527"
     },
     {
+      "symbol": "manyOcc",
+      "file": "src/edit.ts",
+      "signature": "(hay: seq<string>, old: seq<string>): bool",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "d483da2a0b2bbdfa"
+    },
+    {
+      "symbol": "matchesAt",
+      "file": "src/edit.ts",
+      "signature": "(hay: seq<string>, old: seq<string>): bool",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "d483da2a0b2bbdfa"
+    },
+    {
+      "symbol": "matchesFrom",
+      "file": "src/edit.ts",
+      "signature": "(hay: seq<string>, old: seq<string>, p: int): bool",
+      "requires": [
+        "0 <= p && p <= hay.length"
+      ],
+      "ensures": [],
+      "decreases": null,
+      "hash": "41657dfc6b62337c"
+    },
+    {
       "symbol": "noMatchIdentity",
       "file": "src/edit.ts",
       "signature": "(hay: seq<string>, old: seq<string>, repl: seq<string>): bool",
@@ -112,6 +159,24 @@
       ],
       "decreases": null,
       "hash": "fbe6e5400e08c421"
+    },
+    {
+      "symbol": "occurs",
+      "file": "src/edit.ts",
+      "signature": "(hay: seq<string>, old: seq<string>): bool",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "d483da2a0b2bbdfa"
+    },
+    {
+      "symbol": "replaceFirst",
+      "file": "src/edit.ts",
+      "signature": "(hay: seq<string>, old: seq<string>, repl: seq<string>): seq<string>",
+      "requires": [],
+      "ensures": [],
+      "decreases": null,
+      "hash": "d9e61b4b2348a596"
     },
     {
       "symbol": "spliceLength",

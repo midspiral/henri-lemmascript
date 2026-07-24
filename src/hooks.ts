@@ -48,6 +48,7 @@ export interface PermConfig {
 //@ pure
 //@ verify
 export function contains(xs: string[], x: string): boolean {
+  //@ decreases xs.length
   //@ type p nat
   let p = 0;
   while (p < xs.length) {
