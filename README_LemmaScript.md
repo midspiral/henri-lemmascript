@@ -10,8 +10,8 @@ side model: the agent loop itself is the verified `step` of `session.ts` (§5),
 `decide()` gates every tool call inside it, and `editFile`/`replaceFirst` back
 the edit tool.
 
-**221 Dafny verification conditions, 0 errors** — permissions 25, transcript 52,
-hooks 25, edit 12, GVE `exec_core` 10, session 97. Reproduce with
+**234 Dafny verification conditions, 0 errors** — permissions 25, transcript 52,
+hooks 26, edit 24, GVE `exec_core` 10, session 97. Reproduce with
 `npm run verify` (regenerates each `.dfy.gen` merge base, enforces additions-only
 against the proof `.dfy`, runs Dafny); CI in
 [`.github/workflows/lemmascript.yml`](.github/workflows/lemmascript.yml).
@@ -84,7 +84,7 @@ denials and errors included) keeps `wellFormed`; and the batch accumulators
 yielding full `pairs` on the last call and `fillRest` (the interrupt path) closing
 any remainder with paired error results (`PairsToSnoc`/`PairsToPairs` inductions).
 
-## 3. `hooks.ts` — config / hook merge (25 VCs)
+## 3. `hooks.ts` — config / hook merge (26 VCs)
 
 How henri assembles its tool table and permission config from a base plus hooks.
 Verified **in place** via `//@ declare-type Tool { name: string }` (the real `Tool`
@@ -104,7 +104,7 @@ outside the fragment and stay shell (selective `//@ verify`) over the verified `
 `H4` is a cross-module composition: the additivity half lives in `hooks.dfy`, the
 monotonicity half in `permissions.dfy`.
 
-## 4. `edit.ts` — the edit-file splice (12 VCs)
+## 4. `edit.ts` — the edit-file splice (24 VCs)
 
 The pure core of the `edit_file` tool (`tools/base.ts`): find `old` in a file and
 replace it — not-found is an error, more than one occurrence without `replace_all`
@@ -125,6 +125,16 @@ old) == hay` — the matched prefix is *exactly* `old`. Every recursion advances
 character (or shrinks `old`), so termination and in-bounds slicing are structural —
 no overlap/length side-lemmas needed. The live tool calls `editFile` for the verdict
 and `replaceFirst` for the single splice; the all-occurrence join stays shell.
+
+**Executed as loops, specified as recursion.** The recursive equations above are
+the Dafny *spec bodies*; what runs at runtime are index-based loops, proved
+equivalent via `function by method` (sliding-suffix invariants like
+`occurs(hay, old) == occurs(hay[p..], old)`, plus `MatchesAtLen` /
+`ReplaceFirstAt` / `ReplaceFirstNone`). The original recursive forms overflowed
+the JS stack on files past ~8KB — JS engines ship no tail calls, and the
+`slice(1)` steps were quadratic besides — which differential testing
+(`lsc difftest`) surfaced; the loop forms handle 10MB files in ~230ms with the
+E1–E4 statements and proofs unchanged.
 
 ## 5. `session.ts` — the agent loop as a verified transition system (97 VCs)
 
@@ -194,8 +204,13 @@ in `verdictFor`, whose `ensures` is the per-call half of S1.
 
 - Decision logic split into a pure `isAllowed` predicate + thin `decide`, so soundness
   (P1) is definitional and the relational lemmas (P2–P4) reason transparently.
-- Loop-free **recursive functions** throughout (Dafny `function`s can't loop), so the
-  prover unfolds them in lemmas; `//@ decreases` where accumulator recursion needs it.
+- **Recursive definitions for the prover, loops for the runtime.** Spec-side
+  functions stay loop-free recursion (the prover unfolds them in lemmas;
+  `//@ decreases` where accumulator recursion needs it). Functions on hot runtime
+  paths (`edit.ts`'s scan/splice family, `hooks.ts`'s `contains`) are `//@ pure`
+  loops emitted as `function by method`: the recursion remains the Dafny spec
+  body, and Dafny proves the loop computes it — necessary because JS has no tail
+  calls, so data-dependent recursion depth overflowed the stack on ~8KB files.
 - `//@ declare-type` / `//@ verify` to verify real production functions in place rather
   than a string-level model — keeping LemmaScript's no-gap guarantee.
 - `lemma {:fuel normalizeFrom, 7, 8}` to force the concrete traversal witness to evaluate.
