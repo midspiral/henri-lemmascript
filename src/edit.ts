@@ -22,48 +22,118 @@ export type Edit =
   | { kind: "Ambiguous" }
   | { kind: "Replaced" };
 
-/** `old` occurs in `hay` starting at index 0. (decreases on `old` — always in bounds) */
+// Loop-form implementations. The recursive equations that E1–E4 are proved
+// against remain each function's Dafny SPEC BODY (filled in edit.dfy); the
+// loops below are the `by method` bodies Dafny verifies against them. The
+// loops exist because JS gives us neither tail calls nor deep stacks: the
+// original recursive forms overflowed on files past ~8KB (and the per-step
+// `.slice(1)` copies made them quadratic before that).
+
+/** `old` occurs in `hay` starting at index `p`. Index-based — no copies. */
+//@ pure
+//@ verify
+export function matchesFrom(hay: string[], old: string[], p: number): boolean {
+  //@ requires 0 <= p && p <= hay.length
+  //@ type p nat
+  //@ type j nat
+  if (old.length > hay.length - p) return false;
+  let j = 0;
+  while (j < old.length) {
+    //@ invariant 0 <= j && j <= old.length
+    //@ invariant p + old.length <= hay.length
+    //@ invariant matchesAt(hay.slice(p), old) === matchesAt(hay.slice(p + j), old.slice(j))
+    //@ decreases old.length - j
+    if (hay[p + j] !== old[j]) return false;
+    j = j + 1;
+  }
+  return true;
+}
+
+/** `old` occurs in `hay` starting at index 0. */
+//@ pure
+//@ verify
 export function matchesAt(hay: string[], old: string[]): boolean {
-  //@ decreases old.length
-  if (old.length === 0) return true;
-  if (hay.length === 0) return false;
-  if (hay[0] !== old[0]) return false;
-  return matchesAt(hay.slice(1), old.slice(1));
+  //@ type j nat
+  if (old.length > hay.length) return false;
+  let j = 0;
+  while (j < old.length) {
+    //@ invariant 0 <= j && j <= old.length
+    //@ invariant old.length <= hay.length
+    //@ invariant matchesAt(hay, old) === matchesAt(hay.slice(j), old.slice(j))
+    //@ decreases old.length - j
+    if (hay[j] !== old[j]) return false;
+    j = j + 1;
+  }
+  return true;
 }
 
 /** Drop the first `old.length` characters (the matched prefix). Total — never out of bounds. */
+//@ pure
+//@ verify
 export function dropMatch(hay: string[], old: string[]): string[] {
-  //@ decreases old.length
-  if (old.length === 0) return hay;
-  if (hay.length === 0) return hay;
-  return dropMatch(hay.slice(1), old.slice(1));
+  //@ type k nat
+  let k = 0;
+  while (k < old.length && k < hay.length) {
+    //@ invariant 0 <= k && k <= old.length && k <= hay.length
+    //@ invariant dropMatch(hay, old) === dropMatch(hay.slice(k), old.slice(k))
+    //@ decreases old.length - k
+    k = k + 1;
+  }
+  return hay.slice(k);
 }
 
-/** `old` occurs somewhere in `hay`. (decreases on `hay` — advances one char) */
+/** `old` occurs somewhere in `hay`. */
+//@ pure
+//@ verify
 export function occurs(hay: string[], old: string[]): boolean {
-  //@ decreases hay.length
-  if (hay.length === 0) return false;
-  if (matchesAt(hay, old)) return true;
-  return occurs(hay.slice(1), old);
+  //@ type p nat
+  let p = 0;
+  while (p < hay.length) {
+    //@ invariant 0 <= p && p <= hay.length
+    //@ invariant occurs(hay, old) === occurs(hay.slice(p), old)
+    //@ decreases hay.length - p
+    if (matchesFrom(hay, old, p)) return true;
+    p = p + 1;
+  }
+  return false;
 }
 
 /** The suffix after the first occurrence of `old` (or [] if none). */
+//@ pure
+//@ verify
 export function afterFirst(hay: string[], old: string[]): string[] {
-  //@ decreases hay.length
-  if (hay.length === 0) return [];
-  if (matchesAt(hay, old)) return dropMatch(hay, old);
-  return afterFirst(hay.slice(1), old);
+  //@ type p nat
+  let p = 0;
+  while (p < hay.length) {
+    //@ invariant 0 <= p && p <= hay.length
+    //@ invariant afterFirst(hay, old) === afterFirst(hay.slice(p), old)
+    //@ decreases hay.length - p
+    if (matchesFrom(hay, old, p)) return dropMatch(hay.slice(p), old);
+    p = p + 1;
+  }
+  return [];
 }
 
 /** Replace the first occurrence of `old` with `repl`. (= hay.replace(old, repl)) */
+//@ pure
+//@ verify
 export function replaceFirst(hay: string[], old: string[], repl: string[]): string[] {
-  //@ decreases hay.length
-  if (hay.length === 0) return hay;
-  if (matchesAt(hay, old)) return [...repl, ...dropMatch(hay, old)];
-  return [hay[0], ...replaceFirst(hay.slice(1), old, repl)];
+  //@ type p nat
+  let p = 0;
+  while (p < hay.length) {
+    //@ invariant 0 <= p && p <= hay.length
+    //@ invariant forall(q, 0 <= q && q < p ==> !matchesAt(hay.slice(q), old))
+    //@ decreases hay.length - p
+    if (matchesFrom(hay, old, p)) {
+      return [...hay.slice(0, p), ...repl, ...dropMatch(hay.slice(p), old)];
+    }
+    p = p + 1;
+  }
+  return hay;
 }
 
 /** True iff `old` occurs more than once (a first match, then another after it). */
+//@ verify
 export function manyOcc(hay: string[], old: string[]): boolean {
   return occurs(hay, old) && occurs(afterFirst(hay, old), old);
 }
