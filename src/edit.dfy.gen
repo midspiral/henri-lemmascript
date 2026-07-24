@@ -2,6 +2,11 @@
 
 datatype Edit = NotFound | Ambiguous | Replaced
 
+function manyOcc(hay: seq<string>, old_: seq<string>): bool
+{
+  (occurs(hay, old_) && occurs(afterFirst(hay, old_), old_))
+}
+
 function editFile(content: seq<string>, old_: seq<string>, all: bool): Edit
   requires (|old_| > 0)
 {
@@ -54,4 +59,131 @@ lemma spliceLength_ensures(hay: seq<string>, old_: seq<string>, repl: seq<string
   requires occurs(hay, old_)
   ensures (|replaceFirst(hay, old_, repl)| == ((|hay| - |old_|) + |repl|))
 {
+}
+
+function matchesFrom(hay: seq<string>, old_: seq<string>, p: nat): bool
+  requires (0 <= p)
+  requires (p <= |hay|)
+{
+}
+by method {
+  if (|old_| > (|hay| - p)) {
+    return false;
+  }
+  var j := 0;
+  while (j < |old_|)
+    invariant (0 <= j)
+    invariant (j <= |old_|)
+    invariant ((p + |old_|) <= |hay|)
+    invariant (matchesAt(hay[p..], old_) == matchesAt(hay[(p + j)..], old_[j..]))
+    decreases (|old_| - j)
+  {
+    if (hay[(p + j)] != old_[j]) {
+      return false;
+    }
+    j := (j + 1);
+  }
+  return true;
+}
+
+function matchesAt(hay: seq<string>, old_: seq<string>): bool
+{
+}
+by method {
+  if (|old_| > |hay|) {
+    return false;
+  }
+  var j := 0;
+  while (j < |old_|)
+    invariant (0 <= j)
+    invariant (j <= |old_|)
+    invariant (|old_| <= |hay|)
+    invariant (matchesAt(hay, old_) == matchesAt(hay[j..], old_[j..]))
+    decreases (|old_| - j)
+  {
+    if (hay[j] != old_[j]) {
+      return false;
+    }
+    j := (j + 1);
+  }
+  return true;
+}
+
+function dropMatch(hay: seq<string>, old_: seq<string>): seq<string>
+{
+}
+by method {
+  var k := 0;
+  while ((k < |old_|) && (k < |hay|))
+    invariant (0 <= k)
+    invariant (k <= |old_|)
+    invariant (k <= |hay|)
+    invariant (dropMatch(hay, old_) == dropMatch(hay[k..], old_[k..]))
+    decreases (|old_| - k)
+  {
+    k := (k + 1);
+  }
+  return hay[k..];
+}
+
+function occurs(hay: seq<string>, old_: seq<string>): bool
+{
+}
+by method {
+  var p := 0;
+  while (p < |hay|)
+    invariant (0 <= p)
+    invariant (p <= |hay|)
+    invariant (occurs(hay, old_) == occurs(hay[p..], old_))
+    decreases (|hay| - p)
+  {
+    var i_t0 := matchesFrom(hay, old_, p);
+    if i_t0 {
+      return true;
+    }
+    p := (p + 1);
+  }
+  return false;
+}
+
+function afterFirst(hay: seq<string>, old_: seq<string>): seq<string>
+{
+}
+by method {
+  var p := 0;
+  while (p < |hay|)
+    invariant (0 <= p)
+    invariant (p <= |hay|)
+    invariant (afterFirst(hay, old_) == afterFirst(hay[p..], old_))
+    decreases (|hay| - p)
+  {
+    var i_t1 := matchesFrom(hay, old_, p);
+    if i_t1 {
+      var i_t2 := dropMatch(hay[p..], old_);
+      return i_t2;
+    }
+    p := (p + 1);
+  }
+  return [];
+}
+
+function replaceFirst(hay: seq<string>, old_: seq<string>, repl: seq<string>): seq<string>
+{
+}
+by method {
+  var p := 0;
+  while (p < |hay|)
+    invariant (0 <= p)
+    invariant (p <= |hay|)
+    invariant forall q: int :: ((0 <= q) ==> (q < p) ==> !(matchesAt(hay[q..], old_)))
+    decreases (|hay| - p)
+  {
+    var i_t3 := matchesFrom(hay, old_, p);
+    if i_t3 {
+      var i_t4 := dropMatch(hay[p..], old_);
+      return ((hay[0..p] + repl) + i_t4);
+    }
+    p := (p + 1);
+  }
+  return hay;
 }
