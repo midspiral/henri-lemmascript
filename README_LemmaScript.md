@@ -5,8 +5,8 @@
 A hackable agent CLI (a TypeScript port of [henri](https://github.com/metareflection/henri/)) whose security- and
 protocol-critical decision logic is **verified with [LemmaScript](https://github.com/midspiral/LemmaScript)
 (Dafny backend)** and imported directly by the live, runnable agent — it streams
-against Anthropic and AWS Bedrock end to end. The proven functions are not a
-side model: the agent loop itself is the verified `step` of `session.ts` (§5),
+against Anthropic, AWS Bedrock, and Ollama end to end. The proven functions are not a
+side model: the agent loop itself is the verified `step` of `session.ts` (§6),
 `decide()` gates every tool call inside it, and `editFile`/`replaceFirst` back
 the edit tool.
 
@@ -75,7 +75,7 @@ consistent sequence is consistent); C2/C3 are length/`findCut` arithmetic that p
 down auto-compaction termination.
 
 The module also carries the **session builders** — the only operations the verified
-session core (§5) constructs transcripts with, each with its preservation proven as
+session core (§6) constructs transcripts with, each with its preservation proven as
 its contract: `initialMsgs` / `appendUserMsg` / `appendAssistantDone` keep
 `wellFormed`; `appendAnsweredBlock` (the general tool block: any *paired* results,
 denials and errors included) keeps `wellFormed`; and the batch accumulators
@@ -136,7 +136,23 @@ the JS stack on files past ~8KB — JS engines ship no tail calls, and the
 (`lsc difftest`) surfaced; the loop forms handle 10MB files in ~230ms with the
 E1–E4 statements and proofs unchanged.
 
-## 5. `session.ts` — the agent loop as a verified transition system (97 VCs)
+## 5. `gve/exec_core.ts` — in-order plan references (10 VCs)
+
+The optional generate-verify-execute mode resolves symbolic values produced by earlier
+plan steps. Its live validator projects each step to the names it reads and optionally
+binds, then calls the verified `execOk(steps, [])`: every read must already be present in
+the accumulated bindings. The projection and effectful executor remain trusted.
+
+| Property | Lemma | Statement |
+|----------|-------|-----------|
+| **forward-reference gap** | `forwardRefGap_ensures` | The old `okAllBinds` check accepts a concrete plan whose first step reads `x` and whose second step binds `x`, while `execOk` rejects it. Checking against all eventual bindings is therefore too weak. |
+| **fix is a strengthening** | `fixIsStrengthening_ensures` | `execOk(steps, []) ⟹ okAllBinds(steps)` — the in-order validator only removes plans with invalid reference order; it never admits a plan the old check rejected. |
+
+This core fixes the validator/executor mismatch; the plan's information-flow policy is
+checked by the separately verified `guardians` package. See
+[TUTORIAL_GVE.md](TUTORIAL_GVE.md) for that boundary and the deterministic demo.
+
+## 6. `session.ts` — the agent loop as a verified transition system (97 VCs)
 
 The loop itself is a pure `step(st: Session, ev: SEvent): { st, cmds }`. The shell
 (`agent.ts`) is a command interpreter: it performs the emitted `SCommand`s
@@ -198,6 +214,9 @@ in `verdictFor`, whose `ensures` is the per-call half of S1.
   fails loudly instead of silently; file content/strings to char sequences via
   `[...s]` / `join("")` for `edit.ts`; and the real `Tool` flows at runtime while
   proofs reason about `Tool.name`.
+- **GVE boundaries:** plan parsing, the `Step → EStep` read/bind projection, tool
+  classification, and faithful effect sequencing remain trusted. The in-order reference
+  verdict in `exec_core.ts` and the imported guardians policy verdict are verified.
 - **Numbers** are mathematical integers (henri's only numbers are token/turn counts).
 
 ## Proof techniques of note
@@ -218,9 +237,12 @@ in `verdictFor`, whose `ensures` is the per-call half of S1.
 ## Reproduce
 
 ```sh
-npm run verify     # ../LemmaScript/tools/check.sh dafny over LemmaScript-files.txt — 219 VCs
+npm run verify     # ../LemmaScript/tools/check.sh dafny over LemmaScript-files.txt — 234 VCs
 npm run typecheck  # tsc --noEmit
 npm test           # runtime witnesses for the verified properties
+npm run test:gve   # deterministic witnesses for the optional plan mode
 ```
 
-Requires a sibling `../LemmaScript` checkout and Dafny ≥ 4.x.
+Verification requires a built sibling `../LemmaScript` checkout and Dafny ≥ 4.x.
+The full typecheck/GVE test suite also requires `../guardians-lemmascript` on its
+`generate-verify-execute` branch because package.json links it through `file:`.

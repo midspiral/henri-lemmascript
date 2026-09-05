@@ -12,7 +12,7 @@
 //   - performing exactly the commands the core emits, feeding back honest
 //     events, and keeping result contents aligned with the core's batch order.
 // Everything else — gating, grants, pairing, well-formedness, compaction cuts,
-// interrupt handling — is the verified core's (session.ts: S1–S5).
+// interrupt handling — is the verified core's (session.ts: S1–S13 and T∞).
 
 import * as readline from "node:readline/promises";
 import { emitKeypressEvents } from "node:readline";

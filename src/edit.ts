@@ -8,7 +8,8 @@
 //
 // Strings are modeled as arrays of single-character strings (`string[]`); the
 // shell projects `string <-> string[]` via `[...s]` / `s.join("")` — a trusted
-// boundary, exactly like permissions.ts trusts `path.resolve().split("/")`.
+// boundary, like permissions.ts trusts the shell's realpath-aware `buildReq`
+// projection into normalized path segments.
 //
 // Properties (proofs in edit.dfy):
 //   E1 soundness — editFile's verdict (NotFound / Ambiguous / Replaced) matches

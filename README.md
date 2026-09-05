@@ -6,29 +6,30 @@ security- and protocol-critical core is verified via
 
 It is **not** a line-by-line port. Henri's bulk is effectful glue (streaming,
 terminal UI, subprocess, provider SDKs) that lies outside LemmaScript's verifiable
-fragment. Instead, henri's *decision logic* is extracted into a pure verified core,
-imported directly by the live agent. See [DESIGN.md](DESIGN.md).
+fragment. Instead, henri's *decision logic and loop transitions* are extracted into
+a pure verified core imported directly by the live agent. See [DESIGN.md](DESIGN.md).
 
 ## Status
 
 - **Phase 0 — runnable skeleton: done.** Multi-provider agent (Anthropic + Bedrock + Ollama),
   the full tool set, permissions/transcript/hooks written in fragment-friendly TS.
-- **Phase 1 — `permissions.ts` verified: done.** `lsc check` green (14 Dafny VCs,
-  0 errors): soundness, path-traversal containment, grant monotonicity, reject-safety.
+- **Phase 1 — `permissions.ts` verified: done.** `lsc check` green (25 Dafny VCs,
+  0 errors): soundness, path-traversal containment (including glob patterns and
+  symlinks), grant monotonicity, reject-safety, and verified grant recording.
   Proofs in [`src/permissions.dfy`](src/permissions.dfy).
-- **Phase 2 — `transcript.ts` verified: done.** `lsc check` green (26 Dafny VCs,
+- **Phase 2 — `transcript.ts` verified: done.** `lsc check` green (52 Dafny VCs,
   0 errors): tool-call/result pairing (T1) and the no-orphan invariant preserved by
   the loop on *append* (T2), the drop-side mirror — `/compact`'s cut never orphans a
   tool_result and the summarized conversation stays well-formed (C1,
   `findCut`/`snapBack`) — and that auto-compaction is well-behaved: it never grows
   history (C2) and converges to a no-op once short (C3, the guard correctness).
   Proofs in [`src/transcript.dfy`](src/transcript.dfy).
-- **Phase 3 — `hooks.ts` verified: done.** `lsc check` green (24 Dafny VCs, 0 errors):
+- **Phase 3 — `hooks.ts` verified: done.** `lsc check` green (26 Dafny VCs, 0 errors):
   removal (H1), name-uniqueness/the dedup fix (H2), coverage, order-independence (H3),
   additivity (H4, composed with permissions' P3). Verified **in place** — the real
   `mergeTools(Tool[])` is the proof target via `//@ declare-type Tool { name: string }`,
   no parallel model. Proofs in [`src/hooks.dfy`](src/hooks.dfy).
-- **Phase 4 — `edit.ts` verified: done.** `lsc check` green (12 Dafny VCs, 0 errors):
+- **Phase 4 — `edit.ts` verified: done.** `lsc check` green (24 Dafny VCs, 0 errors):
   the `edit_file` decision (E1: not-found / ambiguous / replaced ⟺ occurrence count),
   no-match identity (E2), splice no-op `replaceFirst(hay, old, old) == hay` (E3, via
   `MatchSplit`), and a length law. The live `edit_file` tool calls the verified
@@ -56,12 +57,24 @@ imported directly by the live agent. See [DESIGN.md](DESIGN.md).
   grows on compaction. Capstone (T∞): `inv(runSession(initialSession(…), events))`
   for ANY event sequence — every reachable state is safe, as a theorem rather than
   an induction in prose. Proofs in [`src/session.dfy`](src/session.dfy).
+- **GVE `exec_core.ts` verified: done.** `lsc check` green (10 Dafny VCs, 0 errors):
+  the in-order reference check rejects reads that precede their binding, fixing the
+  forward-reference gap in the original whole-plan validator. The optional
+  `henri plan <task>` mode is documented in [TUTORIAL_GVE.md](TUTORIAL_GVE.md).
 
-**All verified cores are proven (219 Dafny VCs, 0 errors).** The runnable agent
-imports them directly — and since Phase 5, the loop that calls them is itself one
-of them.
+**All verified cores are proven (234 Dafny VCs, 0 errors).** The runnable agent
+imports them directly, and since Phase 5 its ReAct decision loop is itself verified.
 
 ## Run
+
+The `session` branch includes the optional GVE mode through a sibling file dependency.
+Before the first install, place `guardians-lemmascript` on its
+`generate-verify-execute` branch at `../guardians-lemmascript` (the same setup CI uses):
+
+```sh
+git clone --branch generate-verify-execute \
+  https://github.com/midspiral/guardians-lemmascript.git ../guardians-lemmascript
+```
 
 ```sh
 npm install
@@ -76,6 +89,9 @@ npm run henri -- --provider bedrock --region us-east-1
 npm run henri -- --provider ollama        # default model: qwen3.6:latest
 
 npm run henri -- --help    # all options
+
+# Optional generate-verify-execute mode (provider credentials required)
+npm run henri -- plan "fetch https://example.com and save a summary to summary.txt"
 ```
 
 Or install a global `henri` command (runs the TypeScript directly via `tsx`):
@@ -92,11 +108,12 @@ npm run typecheck   # tsc --noEmit
 npm test            # test/smoke.ts + test/session-smoke.ts — runtime witnesses for the
                     # verified properties, incl. the real interpreter driven end-to-end
                     # by a scripted provider
-npm run verify      # regenerate + verify all Dafny proofs (LemmaScript-files.txt) — 219 VCs
+npm run verify      # regenerate + verify all Dafny proofs (LemmaScript-files.txt) — 234 VCs
+npm run test:gve    # deterministic tests for the optional plan mode
 ```
 
 `npm run verify` runs `../LemmaScript/tools/check.sh dafny` over the modules listed in
-[`LemmaScript-files.txt`](LemmaScript-files.txt) (219 VCs): it regenerates each `.dfy.gen`
+[`LemmaScript-files.txt`](LemmaScript-files.txt) (234 VCs): it regenerates each `.dfy.gen`
 merge base, enforces the additions-only invariant against the proof `.dfy`, and runs Dafny.
 CI ([`.github/workflows/lemmascript.yml`](.github/workflows/lemmascript.yml)) does the same plus
 typecheck + smoke, and fails if any generated file is stale. Requires a sibling
@@ -113,6 +130,7 @@ For the exact theorems (every lemma, its statement, and the proof techniques), s
 | `src/transcript.ts` | tool-call/result pairing + **no-orphan invariant** of the loop (append **and** the `/compact` drop side); the session builders the loop constructs transcripts with | the conversation sent to the provider is always well-formed, including after compaction |
 | `src/hooks.ts` | merge removal, **name-uniqueness (a fix)**, order-independence, additivity | hooks only ever add access |
 | `src/edit.ts` | `editFile()` decision soundness, **single-occurrence splice faithfulness**, length law | an edit touches exactly the matched span, nothing else |
+| `src/gve/exec_core.ts` | in-order symbolic-reference validation and a concrete counterexample to the old all-binds check | the validator rejects a projected read unless an earlier projected step binds it |
 | `src/session.ts` | the agent loop as a transition system: **mediation under any event** (S1), invariant preservation incl. interrupts (S2), provider-call / compaction-cut safety (S3/S4), grant discipline & scope (S5/S12), no spurious prompts (S6/S7), interpreter-shape & batch-termination disciplines (S8–S10), bounded state (S11/S13), and **trace safety over any event sequence** (T∞) | no sequence of events — prompt injection included — can drive the loop into an ungated effect or a malformed conversation |
 
 The shell (`agent.ts` — a command interpreter over the session core —

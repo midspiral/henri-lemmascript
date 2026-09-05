@@ -12,10 +12,12 @@ tool system, the permission prompt, and the `while`-loop that ties them together
 and focuses on one question: *how do we make the parts that matter provably
 correct?*
 
-The headline: **76 Dafny verification conditions, 0 errors**, across four
-modules — and the annotated TypeScript is the production code the agent runs.
+The headline: **234 Dafny verification conditions, 0 errors**, across six
+verification targets — permissions 25, transcript 52, hooks 26, edit 24,
+GVE reference ordering 10, and the session transition system 97. The annotated
+TypeScript is the production code the agent runs.
 
-Two invariants are the reason this matters, and everything below builds toward
+Three facts are the reason this matters, and everything below builds toward
 proving them:
 
 - **No silent cwd escape.** With no explicit grant, a path that resolves outside
@@ -25,36 +27,43 @@ proving them:
   tool-result block and the conversation stays well-formed — no orphaned
   `tool_result`, and no `tool_use` left unanswered, is ever sent to the provider
   (`transcript.ts`, lemma `T2_AppendPreservesWellFormed`).
+- **No ungated effect under any provider behavior.** The provider is modeled as
+  adversarial: for every event sequence, the verified session transition emits an
+  `execTool` command only with a justification, while preserving its transcript and
+  batch invariant (`session.ts`, `stepMediation` and `traceFromInitialSafe`).
 
 ## The Big Picture: a verified core inside an unverified shell
 
 The original Henri is mostly *effectful glue* — streaming, terminal UI,
 `subprocess`, network, provider SDKs. None of that lives in a verifiable
 fragment. So henri-lemmascript is not a line-by-line port; it is re-architected
-around a small **pure decision core** that the shell calls into:
+around a small **pure transition core** whose commands the shell interprets:
 
 ```
 ┌───────────────────────────────────────────────────────────┐
 │  Unverified shell (full TypeScript, runs the agent)       │
-│    cli.ts · agent.ts (stream loop) · providers/* · tools/*│
-│    terminal UI · subprocess · network                     │
+│    cli.ts · agent.ts (command interpreter) · providers/*  │
+│    tools/* · terminal UI · subprocess · network           │
 │                                                           │
 │    ┌─────────────────────────────────────────────────┐    │
 │    │  Verified core (//@ annotations + Dafny proofs) │    │
+│    │    session.ts       — agent-loop transitions    │    │
 │    │    permissions.ts   — the access decision       │    │
 │    │    transcript.ts    — tool-call/result protocol │    │
 │    │    hooks.ts         — config/hook merge         │    │
 │    │    edit.ts          — edit-file splice          │    │
+│    │    gve/exec_core.ts — plan reference ordering   │    │
 │    └─────────────────────────────────────────────────┘    │
 └───────────────────────────────────────────────────────────┘
 ```
 
 **Key insight**: the original tutorial's lesson was *soundness is independent of
 the LLM*. The verification lesson is the second half of that: the parts that
-guard safety are also *independent of the rest of the agent*. The shell can be
-buggy, the model can be adversarial — `decide()` still computes exactly the
-intended access policy, and the loop still refuses to send a malformed
-transcript.
+guard safety are also *independent of the provider*. The model can be adversarial:
+`session.step` still emits only mediated commands and preserves the protocol
+invariant. The effectful shell remains trusted to interpret those commands faithfully
+and to project concrete calls and messages into the verified model; that boundary is
+checked at runtime before every provider request.
 
 What's deliberately **outside** the core (the trust boundary) gets its own
 section near the end — and saying where verification *stops* is as important as
@@ -164,10 +173,13 @@ export function normalizeFrom(acc: string[], segs: string[]): string[] {
 }
 ```
 
-The shell is trusted only to call `path.resolve(p).split('/')`; everything that
-*decides containment* is proven. That keeps the headline property self-contained.
+The shell's `buildReq` projection realpaths the deepest existing ancestor, preserves
+any non-existent tail, folds a `glob` pattern onto its base, and splits the result into
+segments. Everything that *decides containment* over those real segments is proven.
+This makes an in-cwd symlink to an outside target, and a `../` carried by a glob
+pattern, fail the same verified containment test as a lexical traversal.
 
-### What gets proven (P1–P4)
+### What gets proven (P1–P4, G1–G2)
 
 | # | Property | In one line |
 |---|----------|-------------|
@@ -175,6 +187,8 @@ The shell is trusted only to call `path.resolve(p).split('/')`; everything that
 | **P2** | **path-traversal containment** | with only auto-allow-in-cwd, an allowed path can never resolve outside cwd (`../`, `a/../../b`, …) |
 | **P3** | grant monotonicity | adding any grant only turns `Deny`/`Prompt` into `Allow`, never the reverse |
 | **P4** | reject-safety | `rejectPrompts` only rewrites `Prompt → Deny`; automation can't escalate |
+| **G1** | grant justification | `grantFor`/`grantAll` make the approved request allowed |
+| **G2** | grant preservation | recording a grant never revokes an existing allowance |
 
 P1 is the auto-discharged `//@ ensures`; P2–P4 are lemmas you add in
 `permissions.dfy` (full lemma names in
@@ -183,24 +197,26 @@ traversal CVE class (CWE-22) proven on an agent's permission gate.**
 
 ### How the live agent uses it
 
-The stateful prompt lives in `permission-gate.ts` (unverified shell). It builds a
-`Req` from a concrete `(Tool, ToolCall)` and calls the verified decision:
+The ReAct loop's permission decision now lives inside the verified session core.
+`verdictFor` calls `decide`; `onPromptAnswer` records "always" and "All" through
+the verified `grantFor`/`grantAll` builders:
 
 ```typescript
-// permission-gate.ts
-async check(tool: Tool, call: ToolCall): Promise<boolean> {
-  if (!tool.requiresPermission) return true;
-  const req = this.buildReq(tool, call);
-  const outcome = decide(this.state, this.cwd, req);   // ← verified core
-  if (outcome === "Allow") return true;
-  if (outcome === "Deny")  return false;
-  return this.promptUser(tool, call, req);             // ← shell: y/n/a/A
+export function verdictFor(st: Session, c: SCall): Verdict {
+  if (!c.known) return "skipUnknown";
+  if (c.noPerm || decide(st.perms, st.cwd, c.req) === "Allow") {
+    return c.argsOk ? "exec" : "skipMissingArgs";
+  }
+  if (decide(st.perms, st.cwd, c.req) === "Deny") return "skipDenied";
+  return "prompt";
 }
 ```
 
-**Key insight**: prompting, recording grants, and mutating session state are all
-shell. But *every* allow/deny flows through the proven `decide`. The thing you
-trust is small and explicit.
+`permission-gate.ts` is the shell projection and prompt UI: it turns a concrete
+tool call into an `SCall`/`Req` and parses y/n/a/A. It makes no ReAct-loop decision
+and records no ReAct-loop grant; the verified transition determines the consequence
+of the answer. Its standalone `InteractiveGate` serves the optional GVE executor as
+a runtime residual and uses the same verified decision and grant builders.
 
 ## Part 3: Core 2 — the tool-call/result protocol (`transcript.ts`)
 
@@ -256,28 +272,24 @@ append side's invariant rather than re-deriving it. C2/C3 then close the loop on
 
 ### How the live agent uses it
 
-`agent.ts` calls the same functions as a runtime assertion **every turn**, before
-sending:
+The session transition can construct its modeled transcript only through the
+verified builders (`appendUserMsg`, `appendAssistantDone`, `appendAnsweredBlock`,
+and `compact`). The shell keeps the concrete message contents in a mirror. Before
+every provider call it projects that mirror and checks it equals the core state:
 
 ```typescript
-const results = await this.runToolCalls(toolCalls);
-
-// Verified invariant T1: results pair 1:1 with calls, ids in order.
-if (!pairs(toolCalls.map(c => ({ id: c.id, name: c.name })),
-           results.map(r => ({ toolCallId: r.toolCallId, isError: r.isError })))) {
-  throw new Error("internal: tool results do not pair with tool calls");
-}
-this.messages.push(toolResultMessage(results));
-
-// Verified invariant T2: the conversation we will send next is well-formed.
-if (!wellFormed(toTranscript(this.messages))) {
-  throw new Error("internal: malformed conversation transcript");
+private checkMirror(): void {
+  const projected = toTranscript(this.messages);
+  if (!wellFormedModel(projected)) throw new Error("internal: mirror transcript malformed");
+  if (JSON.stringify(projected) !== JSON.stringify(this.st.msgs)) {
+    throw new Error("internal: shell mirror diverged from the verified model");
+  }
 }
 ```
 
-**Key insight**: the proof guarantees these checks *can't fail* on the paths the
-loop actually takes — so the `throw`s are a belt-and-suspenders boundary against
-the unverified projection (`toTranscript`), not a substitute for the proof.
+**Key insight**: pairing, append safety, and compaction boundaries are decisions of
+the verified transition system. `checkMirror` is a fail-loud check on the trusted
+projection and interpreter, not the mechanism establishing the invariant.
 
 ## Part 4: Core 3 — the config/hook merge (`hooks.ts`)
 
@@ -335,7 +347,7 @@ verify the **decision** (which verdict) and the **single-occurrence splice**.
 
 Like the path gate, strings are modeled as sequences — here arrays of single
 characters (`string[]`) — and the shell projects `string <-> string[]` via `[...s]`
-/ `join("")` (a trusted boundary, exactly like Part 2's `path.resolve().split('/')`).
+/ `join("")` (a trusted boundary, exactly like Part 2's `buildReq` projection).
 
 The verdict mirrors the tool branch for branch:
 
@@ -366,54 +378,119 @@ E1 is the auto-discharged `//@ ensures`; E2/E3 rest on `MatchSplit`
 
 ### The proof trick worth seeing
 
-Non-overlapping `split` semantics tempt a skip-by-`|old|` recursion — but
-`countOcc(hay.slice(old.length), …)` needs `|old| ≤ |hay|` for its slice to be
-in-bounds and its `decreases` to hold, and that fact (`matchesAt ⟹ |old| ≤ |hay|`)
-is **not** automatic and **can't** be added in the additions-only `.dfy`. So every
-recursion instead advances **one character** (`occurs`, `afterFirst`, `replaceFirst`)
-or shrinks `old` (`matchesAt`, `dropMatch`). Termination and in-bounds slicing become
-*structural* — Dafny discharges all 12 VCs with no side-lemmas about lengths.
+The prover-facing equations advance one character (`occurs`, `afterFirst`,
+`replaceFirst`) or shrink `old` (`matchesAt`, `dropMatch`), which makes termination
+and in-bounds slicing structural. The production TypeScript uses index-based loops:
+LemmaScript emits them as Dafny `function by method` bodies and proves they compute
+those recursive specifications. This preserves the clean proof shape without the
+stack overflow and quadratic `slice(1)` behavior of the original runtime recursion.
 
-**Key insight**: choosing the recursion shape so well-formedness is structural is
+**Key insight**: choosing the specification shape so well-formedness is structural is
 most of the work in a string proof — the same lesson the balanced-match study scales
 to 2233 VCs. The live `edit_file` tool calls `editFile` for the verdict and
 `replaceFirst` for the single splice; the `replace_all` join stays shell.
 
-## Part 6: No gap — the proven functions *are* the production code
+## Part 6: Core 5 — the session transition system (`session.ts`)
+
+The leaf cores become an agent-wide guarantee when the loop itself is expressed as
+one pure transition:
+
+```typescript
+export function step(st: Session, ev: SEvent): StepOut {
+  //@ requires inv(st)
+  switch (ev.kind) {
+    case "userInput":           return onUserInput(st);
+    case "providerReply":       return onProviderReply(st, ev.calls, ev.contextTokens);
+    case "toolDone":            return onToolDone(st, ev.isError);
+    case "promptAnswer":        return onPromptAnswer(st, ev.answer);
+    case "providerInterrupted": return onProviderInterrupted(st);
+    case "batchInterrupted":    return onBatchInterrupted(st);
+    case "compactRequest":      return onCompactRequest(st, ev.keep);
+    case "summaryReady":        return onSummaryReady(st, ev.ok);
+  }
+}
+```
+
+`Session` carries the protocol model, permission state, batch cursor, phase, and
+budgets. `step` returns a new state plus commands for the shell to interpret:
+`callProvider`, `execTool`, `askUser`, `skipTool`, or `summarize`. Unexpected
+event/phase combinations are no-ops, so the transition is total over hostile and
+out-of-order inputs.
+
+### What gets proven (S1–S13 and T∞)
+
+The 97 session VCs compose the contracts of Parts 2 and 3 rather than re-proving
+permissions and transcript structure:
+
+| Family | Guarantee |
+|--------|-----------|
+| **S1 mediation** | every emitted `execTool` is exempt, already justified, justified by an always/All grant recorded in that transition, or approved once by the user |
+| **S2 / T∞ preservation** | `inv` survives every step, and therefore every state reachable from `initialSession` by any event trace satisfies it |
+| **S3–S4 outbound safety** | provider calls carry well-formed transcripts within the turn budget; summarization commands carry a nontrivial, protocol-safe cut |
+| **S5–S7 permission discipline** | only prompt answers can change grants, prompts are necessary, and `rejectPrompts` mode never blocks waiting for one |
+| **S8–S10 command discipline** | at most one effectful command is emitted per step, it corresponds to the batch cursor, and a batch of `n` calls terminates within `2n+1` events |
+| **S11–S13 bounds** | configuration is stable, turns advance by at most one, transcript growth is bounded, and compaction never grows it |
+
+The capstone is an induction over arbitrary traces in the code itself:
+
+```typescript
+export function traceFromInitialSafe(/* config, */ events: SEvent[]): boolean {
+  //@ ensures inv(runSession(initialSession(/* config */), events))
+  return true;
+}
+```
+
+The provider is adversarial by construction because `providerReply` is just another
+unconstrained event. What remains trusted is the shell's projection and faithful
+interpretation of the commands—not the decision about which command may be emitted.
+
+The sixth verification target, `gve/exec_core.ts` (10 VCs), belongs to Henri's
+optional plan mode. It proves that symbolic references are bound by an earlier step
+and supplies a counterexample to the old all-eventual-binds check. Its policy gate
+and trust boundary are covered separately in [TUTORIAL_GVE.md](TUTORIAL_GVE.md).
+
+## Part 7: No gap — the proven functions *are* the production code
 
 This is the property that distinguishes henri-lemmascript from "we also wrote a
-formal model." The annotated `.ts` files are imported by the live shell:
+formal model." The annotated `.ts` files are imported along the live execution path:
 
-- `permission-gate.ts` imports `{ decide, normalize, resolvePath }` and calls
-  `decide(...)` on every gated tool call.
-- `agent.ts` imports `{ pairs, wellFormed }` and asserts them every turn, and
-  imports `{ mergeTools, mergePerms }` to build its tables.
+- `agent.ts` feeds every event through the verified `session.step`, then interprets
+  the commands it emits; it also uses `mergeTools`/`mergePerms` to build its tables.
+- `session.ts` calls the verified permission decisions and grant builders, and can
+  update its modeled transcript only through the verified transcript builders.
 - `tools/base.ts` imports `{ editFile, replaceFirst }` and uses them in the
   `edit_file` tool — the verdict and the single splice run through the verified core.
+- `gve/gate.ts` calls the verified `execOk` reference-order check in optional plan mode.
 
-There is no code generation step that produces a *different* runtime artifact and
-no adapter translating a model into the real types. When you read `decide` in the
-tutorial above, you are reading the function that gates the `bash` tool when you
-run `npm run henri`. The proof is *about the running code*.
+There is no code generation step that substitutes a different runtime implementation.
+The boundaries between effectful values and proof models—`ToolCall → SCall`, concrete
+messages → `TMsg`, strings → character arrays—are explicit trusted projections and are
+checked where possible. When you read `step`, `decide`, or `editFile` above, you are
+reading functions executed by `npm run henri`.
 
-## Part 7: The trust boundary — where verification stops (and why that's fine)
+## Part 8: The trust boundary — where verification stops (and why that's fine)
 
 Verifying the core makes the trust boundary smaller and **explicit**, not zero.
 What is deliberately *not* verified:
 
-- **`subprocess` (`bash`), file I/O (`read`/`write`/`edit`), network, provider
-  streaming, terminal UI** — effectful shell.
-- **Path projection.** The shell does `path.resolve(p).split('/')`; the in-core
-  `normalize` reasons over the result. Symlink resolution is a runtime concern,
-  not modeled.
-- **Transcript projection** (`toTranscript`) from runtime messages to the `TMsg`
-  model — trusted to be faithful.
-- **Edit string projection.** The shell projects file content/strings to char
-  sequences via `[...s]` / `join("")`; the `replace_all` join (`split/join`) stays
-  shell, while the verdict and the single splice are verified.
-- **Tool `args` and result `content`** — opaque strings to the proofs.
-- **Numbers** — mathematical integers (henri's only numbers are token/turn
-  counts); no overflow modeling.
+- **Effects:** `subprocess` (`bash`), file I/O, network, provider streaming, and
+  terminal UI remain shell.
+- **The command interpreter:** `agent.ts` is trusted to perform exactly the commands
+  `session.step` emits, feed back honest events, and keep result contents in batch order.
+- **The prompt UI:** `permission-gate.ts` renders a question and parses y/n/a/A; the
+  verified transition determines what each parsed answer does.
+- **Boundary projections:** a concrete tool call becomes an `SCall` containing the
+  projected `Req` plus `known`/`noPerm`/`argsOk` facts. `buildReq` realpaths the deepest
+  existing ancestor and folds glob patterns before the verified containment decision.
+  Concrete messages become `TMsg`; `checkMirror` compares that projection with the
+  verified model before every provider call. These checks fail loudly, but faithfulness
+  of the projections is still trusted.
+- **Edit strings and opaque payloads:** the shell maps strings to character arrays for
+  `edit.ts`; tool arguments, result content, and the `replace_all` join remain outside
+  the proof.
+- **GVE glue:** plan parsing, tool classification, the read/bind projection, and
+  effectful execution of exactly the admitted plan remain trusted.
+- **Numbers:** Dafny models mathematical integers; JavaScript overflow is not modeled.
 
 **Key insight — worth stating out loud**: `decide == Allow ⟺ isAllowed` says *the
 gate computes the intended policy correctly*. It does **not** say *executing an
@@ -423,18 +500,21 @@ keep. Verification moved the trust from "did we implement the policy right" (now
 proven) to "is the policy itself right, and is the projection faithful" (still
 trusted, but small and named).
 
-## Part 8: Reproduce it
+## Part 9: Reproduce it
 
 Prerequisites: a sibling [`../LemmaScript`](../LemmaScript) checkout (built), and
-Dafny ≥ 4.x. See [`../LemmaScript/GETTING_STARTED.md`](../LemmaScript/GETTING_STARTED.md)
-for setup.
+Dafny ≥ 4.x. The full typecheck/GVE suite also expects
+`../guardians-lemmascript` on its `generate-verify-execute` branch. See
+[`../LemmaScript/GETTING_STARTED.md`](../LemmaScript/GETTING_STARTED.md) for the
+verification toolchain setup.
 
 ```sh
 npm run verify     # ../LemmaScript/tools/check.sh dafny — regenerates, enforces
-                   # additions-only, runs Dafny over all four: 76 VCs, 0 errors
+                   # additions-only, runs Dafny over all six: 234 VCs, 0 errors
 npm run typecheck  # tsc --noEmit — the shell + core typecheck as one program
-npm test           # runtime witnesses for P1–P4 / T1–T2 / H1–H3 / E1–E3
-npm run henri      # run the actual agent (Anthropic or AWS Bedrock)
+npm test           # runtime witnesses, including the verified session interpreter
+npm run test:gve   # deterministic witnesses for optional plan mode
+npm run henri      # run the actual agent (Anthropic, Bedrock, or Ollama)
 ```
 
 Per-module, the edit loop is:
@@ -445,7 +525,7 @@ npm run gen   -- src/permissions.ts   # (re)generate permissions.dfy.gen
 npm run check -- src/permissions.ts   # additions-only check + Dafny verify
 ```
 
-## Part 9: Extend it — verify your own function
+## Part 10: Extend it — verify your own function
 
 The original tutorial's Part 6 was "Adding a new tool." The verification analogue:
 
@@ -480,16 +560,19 @@ A few exercises, in increasing difficulty:
 ## Where to go next
 
 - [`README_LemmaScript.md`](README_LemmaScript.md) — the full property/lemma
-  reference (what each of the 76 VCs proves).
+  reference (what each of the 234 VCs proves).
 - [`DESIGN.md`](DESIGN.md) — why the cores are shaped this way; the phased plan;
   the fragment-boundary tactics.
+- [`TUTORIAL_GVE.md`](TUTORIAL_GVE.md) — the optional generate-verify-execute mode,
+  its imported guardians policy proof, and its separate trust boundary.
 - [`../LemmaScript/SPEC.md`](../LemmaScript/SPEC.md) — the annotation language.
 - [`../LemmaScript/GETTING_STARTED.md`](../LemmaScript/GETTING_STARTED.md) — the
   Dafny edit loop in practice.
 - The original [Henri tutorial](https://github.com/metareflection/henri/blob/main/TUTORIAL.md)
   — the agent this builds on.
 
-**The whole point**: the agent's `while`-loop is unchanged from the original; what
-changed is that the three decisions that guard safety and protocol — *who may
-touch what*, *is the transcript well-formed*, *does merging hooks stay additive* —
-are now theorems, checked on every run, about the code that actually runs.
+**The whole point**: the agent loop is now the verified `session.step`, while
+`agent.ts` is its effectful command interpreter. Who may touch what, how grants
+change, whether tool results remain paired, where compaction may cut, and whether
+every reachable session stays invariant are theorems about the code that actually
+runs—not assertions layered around an otherwise-unverified loop.
