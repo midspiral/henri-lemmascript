@@ -1,5 +1,5 @@
 // Smoke tests for the verified session core (session.ts) — runtime witnesses
-// for S1–S5 — plus an end-to-end run of the REAL interpreter (agent.ts Agent)
+// for S1–S13 and T∞ — plus an end-to-end run of the REAL interpreter (agent.ts Agent)
 // against a scripted provider and scripted prompt answers.
 // Run: npx tsx test/session-smoke.ts
 

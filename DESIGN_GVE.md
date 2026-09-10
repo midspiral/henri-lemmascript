@@ -212,8 +212,9 @@ every branch.*
 ## 9. Relationship to henri's other modes
 
 GVE is an alternative loop, not a replacement. Interactive ReAct (human gate) and GVE
-(proof gate) coexist; henri's existing verified cores (permissions / transcript / edit)
-still apply, and the permission gate doubles as the paper's **runtime residual** check
+(proof gate) coexist; henri's existing verified cores (permissions / transcript / hooks /
+edit / session) still apply, and the permission gate doubles as the paper's
+**runtime residual** check
 (hybrid static + runtime, the paper's array-bounds analogy) during plan execution.
 
 ## 10. Staged plan

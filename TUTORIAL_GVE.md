@@ -88,7 +88,8 @@ task ──prompt──► LLM ──parse──► Workflow ──validate─�
 2. **Parse** (`plan.ts`) — strict JSON → `Workflow` (handles ```json fences); also
    `renderLiterate` for the human preview (intentional-programming view of the same AST).
 3. **Validate** (`gate.ts → validatePlan`) — well-formedness: only allowed tools, every
-   `{ ref }` resolves to a prior `bind`.
+   `{ ref }` resolves to a prior `bind`. The in-order reference verdict is the local
+   verified `execOk` from `gve/exec_core.ts`; the `Step → EStep` projection is trusted.
 4. **Verify** (`gate.ts → gatePlan`) — call `verify`, admit on the proved fields, and name
    the firing source→sink rule for the witness. *This is the safety decision.*
 5. **Execute** (`execute.ts → executePlan`) — run an admitted plan, resolving `@ref` only
@@ -105,26 +106,43 @@ a sink. Built as a guardians `Policy` of cross-product `taintRules`.
 The safety claim is: *a plan that the proved checker rejects never executes.* The chain:
 
 ```
-parsePlan ─► classify tools ─► buildSrc (1:1) ─► buildWf ─► leaksWf ─► read taintWf ─► executePlan
-  TRUSTED       TRUSTED          TRUSTED         PROVED     PROVED                        TRUSTED
+parsePlan ─► classify tools ─► buildSrc ─► buildWf ─► leaksWf ─► read taintWf ─► executePlan
+  TRUSTED       TRUSTED         TRUSTED     PROVED     PROVED                       TRUSTED
+     │
+     └────► toEStep ─► execOk
+             TRUSTED     PROVED
 ```
 
 - **Proved (in guardians):** `buildWf` faithfulness, `leaksWf`/`automaton` soundness — the
   policy *decision* is a theorem, parametric over all plans and all tool classifications.
+- **Proved (in henri):** `execOk` checks references against bindings accumulated from
+  earlier steps. `forwardRefGap` exhibits the plan the old all-binds check accepted but
+  execution could not resolve; `fixIsStrengthening` proves the replacement only removes
+  invalid reference orders.
 - **Trusted (henri's glue, this branch):** the plan parser, the tool classification, the
-  `Step[]` transcription, and — the load-bearing one — the **faithful executor** (it must
-  run *exactly* the verified plan: no out-of-band calls, data only fills argument slots).
-  These are validated by typechecking + tests + a live run, **not** by proof.
+  `Step[]`/`EStep[]` projections, and — the load-bearing one — the **faithful executor**
+  (it must run *exactly* the verified plan: no out-of-band calls, data only fills argument
+  slots). These are validated by typechecking + tests, **not** by proof.
 
-So this branch carries *integration* weight, not new verification: it wires a proved
-kernel into a live agent. The "verify" in generate-verify-execute is inherited from
-guardians; the *generate* and *execute* halves are trusted shell. No "verified
-end-to-end" is claimed — the guarantee is *given a faithful plan, classification, and
-executor, the proved checker's soundness carries the safety decision*.
+Most of this branch carries *integration* weight: it wires guardians' proved policy
+kernel into a live agent. Its 10-VC local core additionally proves the reference-order
+decision that keeps validation aligned with execution. The information-flow "verify" in
+generate-verify-execute is inherited from guardians; the *generate* and *execute* halves
+are trusted shell. No "verified end-to-end" claim is made — given faithful projections,
+classification, and execution, the proved checkers carry the safety decisions.
 
 ---
 
 ## 4. Run it
+
+The package links guardians through `file:../guardians-lemmascript`. Ensure that sibling
+checkout is on `generate-verify-execute` before installing Henri's dependencies:
+
+```sh
+git clone --branch generate-verify-execute \
+  https://github.com/midspiral/guardians-lemmascript.git ../guardians-lemmascript
+npm install
+```
 
 ```sh
 npm run typecheck     # henri checks against guardians' published types

@@ -3,15 +3,18 @@
 // The access decision — the pure core of henri's permission system.
 //
 // VERIFICATION TARGET (Phase 1). Written in LemmaScript's computational
-// fragment so it is extracted to Dafny and proved. The interactive, stateful
-// wrapper that prompts the user and records grants lives in permission-gate.ts
-// (unverified shell).
+// fragment so it is extracted to Dafny and proved. The unverified shell in
+// permission-gate.ts projects concrete calls and prompts the user; the verified
+// session transition applies decisions and records grants through the builders
+// at the end of this file.
 //
 // Properties (see DESIGN.md §3.1 and permissions.dfy for the proofs):
 //   P1 soundness   — decide() == "Allow" iff isAllowed() (no other path to Allow)
 //   P2 containment — a path that escapes cwd is never auto-granted
 //   P3 monotonicity— adding a grant never turns Allow into Deny/Prompt
 //   P4 reject-safe — rejectPrompts only rewrites Prompt -> Deny
+//   G1 grant sound — grantFor/grantAll justify the approved request
+//   G2 grant grows — recording a grant never revokes existing access
 
 export type Outcome = "Allow" | "Deny" | "Prompt";
 
