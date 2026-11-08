@@ -87,11 +87,11 @@ datatype StepOut = StepOut(st: Session, cmds: seq<SCommand>)
 
 datatype Verdict = exec | prompt | skipUnknown | skipDenied | skipMissingArgs
 
+datatype Req = bash(command: string) | path(tool: string, segs: seq<string>, absolute: bool) | other(tool: string)
+
 datatype TToolResult = TToolResult(toolCallId: string, isError: bool)
 
 datatype TToolCall = TToolCall(id: string, name: string)
-
-datatype Req = bash(command: string) | path(tool: string, segs: seq<string>, absolute: bool) | other(tool: string)
 
 datatype Outcome = Allow | Deny | Prompt
 
