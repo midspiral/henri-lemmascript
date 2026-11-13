@@ -341,13 +341,18 @@ lemma DedupToolsCovers(acc: seq<Tool>, tools: seq<Tool>, removes: seq<string>, n
   }
 }
 
-function contains(xs: seq<string>, x: string): bool
-  decreases |xs|
+function contains_fun_spec(xs: seq<string>, x: string): bool
 {
   if (|xs| == 0) then
     false
   else
-    ((xs[0] == x) || contains(xs[1..], x))
+    ((xs[0] == x) || contains_fun_spec(xs[1..], x))
+}
+
+function contains(xs: seq<string>, x: string): bool
+  decreases |xs|
+{
+  contains_fun_spec(xs, x)
 }
 by method {
   var p := 0;

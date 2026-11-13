@@ -170,8 +170,11 @@ lemma gatherCommutes_ensures(base: seq<string>, p: seq<string>, q: seq<string>, 
 {
 }
 
+function contains_fun_spec(xs: seq<string>, x: string): bool
+
 function contains(xs: seq<string>, x: string): bool
 {
+  contains_fun_spec(xs, x)
 }
 by method {
   var p := 0;
