@@ -61,10 +61,15 @@ lemma spliceLength_ensures(hay: seq<string>, old_: seq<string>, repl: seq<string
 {
 }
 
+function matchesFrom_fun_spec(hay: seq<string>, old_: seq<string>, p: nat): bool
+  requires (0 <= p)
+  requires (p <= |hay|)
+
 function matchesFrom(hay: seq<string>, old_: seq<string>, p: nat): bool
   requires (0 <= p)
   requires (p <= |hay|)
 {
+  matchesFrom_fun_spec(hay, old_, p)
 }
 by method {
   if (|old_| > (|hay| - p)) {
@@ -86,8 +91,11 @@ by method {
   return true;
 }
 
+function matchesAt_fun_spec(hay: seq<string>, old_: seq<string>): bool
+
 function matchesAt(hay: seq<string>, old_: seq<string>): bool
 {
+  matchesAt_fun_spec(hay, old_)
 }
 by method {
   if (|old_| > |hay|) {
@@ -109,8 +117,11 @@ by method {
   return true;
 }
 
+function dropMatch_fun_spec(hay: seq<string>, old_: seq<string>): seq<string>
+
 function dropMatch(hay: seq<string>, old_: seq<string>): seq<string>
 {
+  dropMatch_fun_spec(hay, old_)
 }
 by method {
   var k := 0;
@@ -126,8 +137,11 @@ by method {
   return hay[k..];
 }
 
+function occurs_fun_spec(hay: seq<string>, old_: seq<string>): bool
+
 function occurs(hay: seq<string>, old_: seq<string>): bool
 {
+  occurs_fun_spec(hay, old_)
 }
 by method {
   var p := 0;
@@ -146,8 +160,11 @@ by method {
   return false;
 }
 
+function afterFirst_fun_spec(hay: seq<string>, old_: seq<string>): seq<string>
+
 function afterFirst(hay: seq<string>, old_: seq<string>): seq<string>
 {
+  afterFirst_fun_spec(hay, old_)
 }
 by method {
   var p := 0;
@@ -167,8 +184,11 @@ by method {
   return [];
 }
 
+function replaceFirst_fun_spec(hay: seq<string>, old_: seq<string>, repl: seq<string>): seq<string>
+
 function replaceFirst(hay: seq<string>, old_: seq<string>, repl: seq<string>): seq<string>
 {
+  replaceFirst_fun_spec(hay, old_, repl)
 }
 by method {
   var p := 0;
